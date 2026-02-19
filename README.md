@@ -28,7 +28,7 @@ This project demonstrates telemetry visualization, command panel interaction, an
 
 ---
 
-## 🎯 Project Purpose
+## Project Purpose
 
 This UI prototype was developed as part of a CanSat Ground Station system to simulate mission monitoring before backend and telemetry integration.
 
@@ -44,7 +44,7 @@ Future integration will include:
 
 ---
 
-## 📡 System Overview
+## System Overview
 
 The interface is divided into:
 
@@ -56,7 +56,7 @@ The interface is divided into:
 
 ---
 
-## 🧠 Learning Outcomes
+## Learning Outcomes
 
 - UI system design for aerospace telemetry
 - Responsive dashboard layout
