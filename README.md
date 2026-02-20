@@ -13,7 +13,7 @@ Web dashboard for CanSat telemetry playback and monitoring.
 
 ## How to use
 
-1. Open `dashboard.html` in your browser.
+1. Open `dashboard.html` with VS Code Live Server (usually `http://localhost:5500/dashboard.html`).
 2. Use **Load Telemetry CSV** to import telemetry logs (for example from your teammate ZIP).
 3. Control playback with play/pause, speed selector, and timeline scrubber.
 
