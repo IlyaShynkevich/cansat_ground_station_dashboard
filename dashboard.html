@@ -51,6 +51,7 @@
           <h3 class="panel__subtitle">Playback</h3>
           <div class="playback">
             <button class="btn" type="button" id="playPauseBtn">Pause</button>
+            <button class="btn btn--ghost" type="button" id="resetBtn">Reset</button>
             <label class="playback__label" for="speedSelect">Speed</label>
             <select id="speedSelect" class="select">
               <option value="250">4x</option>
@@ -58,6 +59,7 @@
               <option value="1000">1x</option>
             </select>
             <input id="timeline" class="range" type="range" min="0" max="0" step="1" value="0" />
+            <div class="playback__meta" id="playbackMeta">Packet 0 / 0</div>
           </div>
 
           <div class="divider"></div>

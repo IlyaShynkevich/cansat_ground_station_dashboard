@@ -99,6 +99,7 @@ body {
 
 .playback { display: grid; gap: 8px; }
 .playback__label { color: var(--muted); font-size: 13px; font-weight: 800; }
+.playback__meta { color: var(--muted); font-size: 13px; font-weight: 700; }
 .range { width: 100%; }
 .select {
   border: 2px solid var(--border);
@@ -117,6 +118,7 @@ body {
   font-weight: 900;
   cursor: pointer;
 }
+.btn--ghost { border-color: var(--border); color: var(--muted); }
 .cmd { display: grid; gap: 8px; }
 
 .cmd-echo {

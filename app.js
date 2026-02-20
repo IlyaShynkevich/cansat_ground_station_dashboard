@@ -20,8 +20,10 @@ const elements = {
   mapLink: document.getElementById("mapLink"),
   cmdEcho: document.getElementById("cmdEcho"),
   playPauseBtn: document.getElementById("playPauseBtn"),
+  resetBtn: document.getElementById("resetBtn"),
   speedSelect: document.getElementById("speedSelect"),
   timeline: document.getElementById("timeline"),
+  playbackMeta: document.getElementById("playbackMeta"),
   checkLink: document.getElementById("checkLink"),
   checkLog: document.getElementById("checkLog"),
   checkSim: document.getElementById("checkSim"),
@@ -52,11 +54,19 @@ function parseCsvLine(line) {
   return line.split(",").map((x) => x.trim());
 }
 
+function normalizeHeader(name) {
+  return String(name ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^A-Z0-9_]/g, "");
+}
+
 function parseTelemetryCsv(text) {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (lines.length < 2) return [];
 
-  const headers = parseCsvLine(lines[0]);
+  const headers = parseCsvLine(lines[0]).map(normalizeHeader);
   const rows = [];
   for (let i = 1; i < lines.length; i += 1) {
     const cols = parseCsvLine(lines[i]);
@@ -143,6 +153,12 @@ function rowAt(i) {
   return data[Math.max(0, Math.min(i, data.length - 1))];
 }
 
+function updatePlaybackMeta() {
+  const total = data.length;
+  const current = total === 0 ? 0 : index + 1;
+  elements.playbackMeta.textContent = `Packet ${current} / ${total}`;
+}
+
 function updateUi() {
   const row = rowAt(index);
   if (!row) return;
@@ -198,6 +214,7 @@ function updateUi() {
 
   updateQuickChecks(row);
   elements.timeline.value = String(index);
+  updatePlaybackMeta();
 
   const start = Math.max(0, index - tailSize + 1);
   const windowRows = data.slice(start, index + 1);
@@ -295,6 +312,13 @@ elements.playPauseBtn.addEventListener("click", () => {
   elements.playPauseBtn.textContent = isPlaying ? "Pause" : "Play";
 });
 
+elements.resetBtn.addEventListener("click", () => {
+  index = 0;
+  isPlaying = false;
+  elements.playPauseBtn.textContent = "Play";
+  updateUi();
+});
+
 elements.speedSelect.addEventListener("change", () => {
   intervalMs = Number(elements.speedSelect.value);
   restartLoop();
@@ -368,6 +392,7 @@ async function init3D() {
 
 data = seedDemoData();
 elements.timeline.max = String(data.length - 1);
+updatePlaybackMeta();
 updateUi();
 restartLoop();
 init3D();
