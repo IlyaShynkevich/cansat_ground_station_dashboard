@@ -3,281 +3,140 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CanSat Ground Station – UI Prototype</title>
+  <title>CanSat Ground Station Dashboard</title>
   <link rel="stylesheet" href="./styles.css" />
   <script type="importmap">
-  {
-    "imports": {
+    {
+      "imports": {
         "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
         "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
     }
-  }
-</script>
+  </script>
 </head>
 <body>
   <header class="topbar">
     <div class="topbar__left">
       <div class="title">CanSat Ground Station</div>
-      <div class="subtitle">UI Prototype • Single Screen • No Backend</div>
+      <div class="subtitle">CSV Playback + Live Telemetry UI</div>
     </div>
-
+    <div class="topbar__right">
+      <label class="file-btn" for="csvFileInput">Load Telemetry CSV</label>
+      <input id="csvFileInput" type="file" accept=".csv,text/csv" hidden />
+      <div class="pill" id="sourceLabel">Source: Demo</div>
+    </div>
   </header>
 
-<div class="viewport">
-  <div class="fit-stage"> 
-    <main class="layout fit-root" role="main" aria-label="Ground station dashboard layout">
-        <!-- LEFT: STATUS -->
+  <div class="viewport">
+    <div class="fit-stage">
+      <main class="layout fit-root" role="main" aria-label="Ground station dashboard layout">
         <section class="panel" aria-label="Status">
-        <h2 class="panel__title">Status</h2>
-
-        <div class="kv">
+          <h2 class="panel__title">Status</h2>
+          <div class="kv">
             <div class="kv__k">Mission Time (UTC)</div>
-            <div class="kv__v">—</div>
-
+            <div class="kv__v" id="missionTime">--</div>
             <div class="kv__k">Mode</div>
-            <div class="kv__v"><span class="badge">FLIGHT</span></div>
-
+            <div class="kv__v"><span class="badge" id="modeBadge">--</span></div>
             <div class="kv__k">State</div>
-            <div class="kv__v"><span class="badge badge--muted">LAUNCH_PAD</span></div>
-
+            <div class="kv__v"><span class="badge badge--muted" id="stateBadge">--</span></div>
             <div class="kv__k">Packets Received</div>
-            <div class="kv__v">—</div>
-
+            <div class="kv__v" id="packetsReceived">0</div>
             <div class="kv__k">Packets Lost</div>
-            <div class="kv__v">—</div>
-
+            <div class="kv__v" id="packetsLost">0</div>
             <div class="kv__k">GPS Sats</div>
-            <div class="kv__v">—</div>
-        </div>
+            <div class="kv__v" id="gpsSats">--</div>
+          </div>
 
-        <div class="divider"></div>
+          <div class="divider"></div>
+          <h3 class="panel__subtitle">Playback</h3>
+          <div class="playback">
+            <button class="btn" type="button" id="playPauseBtn">Pause</button>
+            <label class="playback__label" for="speedSelect">Speed</label>
+            <select id="speedSelect" class="select">
+              <option value="250">4x</option>
+              <option value="500" selected>2x</option>
+              <option value="1000">1x</option>
+            </select>
+            <input id="timeline" class="range" type="range" min="0" max="0" step="1" value="0" />
+          </div>
 
-        <h3 class="panel__subtitle">Quick Checks</h3>
-        <ul class="checklist">
-            <li><span class="dot dot--ok"></span> Telemetry Link</li>
-            <li><span class="dot dot--ok"></span> Logging Ready</li>
-            <li><span class="dot dot--warn"></span> Simulation: Disabled</li>
-            <li><span class="dot dot--ok"></span> Battery OK</li>
-        </ul>
+          <div class="divider"></div>
+          <h3 class="panel__subtitle">Quick Checks</h3>
+          <ul class="checklist">
+            <li><span class="dot" id="checkLink"></span> Telemetry Link</li>
+            <li><span class="dot" id="checkLog"></span> Logging Ready</li>
+            <li><span class="dot" id="checkSim"></span> Simulation Mode</li>
+            <li><span class="dot" id="checkBattery"></span> Battery OK</li>
+          </ul>
 
-        <div class="divider"></div>
-
-        <h3 class="panel__subtitle">Command Panel (UI only)</h3>
-        <div class="cmd">
+          <div class="divider"></div>
+          <h3 class="panel__subtitle">Command Panel</h3>
+          <div class="cmd">
             <button class="btn" type="button" data-cmd="CAL">CAL (Zero Alt)</button>
             <button class="btn" type="button" data-cmd="CX ON">CX ON</button>
             <button class="btn" type="button" data-cmd="CX OFF">CX OFF</button>
             <button class="btn" type="button" data-cmd="SIM ENABLE">SIM ENABLE</button>
             <button class="btn" type="button" data-cmd="SIM ACTIVATE">SIM ACTIVATE</button>
-        </div>
-
-        <div class="cmd-echo">
+          </div>
+          <div class="cmd-echo">
             <div class="cmd-echo__k">CMD_ECHO</div>
-            <div class="cmd-echo__v" id="cmdEcho">—</div>
-        </div>
+            <div class="cmd-echo__v" id="cmdEcho">--</div>
+          </div>
         </section>
 
-        <!-- CENTER: TELEMETRY + PLOTS -->
         <section class="panel panel--center" aria-label="Telemetry and plots">
-        <h2 class="panel__title">Telemetry</h2>
+          <h2 class="panel__title">Telemetry</h2>
+          <div class="metrics" aria-label="Telemetry key metrics">
+            <div class="metric"><div class="metric__k">Altitude</div><div class="metric__v"><span id="altitudeVal">--</span> <span class="unit">m</span></div></div>
+            <div class="metric"><div class="metric__k">Temperature</div><div class="metric__v"><span id="tempVal">--</span> <span class="unit">C</span></div></div>
+            <div class="metric"><div class="metric__k">Pressure</div><div class="metric__v"><span id="pressureVal">--</span> <span class="unit">kPa</span></div></div>
+            <div class="metric"><div class="metric__k">Battery Voltage</div><div class="metric__v"><span id="voltageVal">--</span> <span class="unit">V</span></div></div>
+            <div class="metric"><div class="metric__k">GPS Altitude</div><div class="metric__v"><span id="gpsAltVal">--</span> <span class="unit">m</span></div></div>
+            <div class="metric"><div class="metric__k">GPS</div><div class="metric__v metric__v--small" id="gpsVal">Lat -- / Lon --</div></div>
+          </div>
 
-        <div class="metrics" aria-label="Telemetry key metrics">
-            <div class="metric">
-            <div class="metric__k">Altitude</div>
-            <div class="metric__v">— <span class="unit">m</span></div>
-            </div>
-            <div class="metric">
-            <div class="metric__k">Temperature</div>
-            <div class="metric__v">— <span class="unit">°C</span></div>
-            </div>
-            <div class="metric">
-            <div class="metric__k">Pressure</div>
-            <div class="metric__v">— <span class="unit">kPa</span></div>
-            </div>
-            <div class="metric">
-            <div class="metric__k">Battery Voltage</div>
-            <div class="metric__v">— <span class="unit">V</span></div>
-            </div>
-            <div class="metric">
-            <div class="metric__k">Battery Current</div>
-            <div class="metric__v">— <span class="unit">A</span></div>
-            </div>
-            <div class="metric">
-            <div class="metric__k">GPS</div>
-            <div class="metric__v metric__v--small">Lat — / Lon —</div>
-            </div>
-        </div>
-
-        <h2 class="panel__title panel__title--spaced">Plots (static placeholders)</h2>
-        <div class="plots" aria-label="Plots grid">
-            <!-- Plot 1 -->
+          <h2 class="panel__title panel__title--spaced">Plots</h2>
+          <div class="plots" aria-label="Plots grid">
             <figure class="plot">
-            <figcaption class="plot__title">Altitude vs Time</figcaption>
-            <svg class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Altitude plot placeholder">
-                <rect x="0" y="0" width="520" height="210" fill="white"></rect>
-
-                <!-- axes -->
-                <line x1="40" y1="20" x2="40" y2="180" stroke="#111" stroke-width="2"/>
-                <line x1="40" y1="180" x2="500" y2="180" stroke="#111" stroke-width="2"/>
-
-                <!-- grid -->
-                <g stroke="#ddd" stroke-width="1">
-                <line x1="40" y1="140" x2="500" y2="140"/>
-                <line x1="40" y1="100" x2="500" y2="100"/>
-                <line x1="40" y1="60" x2="500" y2="60"/>
-                <line x1="120" y1="20" x2="120" y2="180"/>
-                <line x1="200" y1="20" x2="200" y2="180"/>
-                <line x1="280" y1="20" x2="280" y2="180"/>
-                <line x1="360" y1="20" x2="360" y2="180"/>
-                <line x1="440" y1="20" x2="440" y2="180"/>
-                </g>
-
-                <!-- trace -->
-                <!-- trace (generated by JS) -->
-                <path class="trace"
-                    d=""
-                    fill="none"
-                    stroke="#111"
-                    stroke-width="4"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    style="display:none"/>
-
-                <text class="nodata"
-                    x="260"
-                    y="110"
-                    text-anchor="middle"
-                    font-size="14"
-                    fill="#5b5b5b">
-                No data
-                </text>
-            </svg>
+              <figcaption class="plot__title">Altitude vs Packet</figcaption>
+              <svg id="plotAlt" class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Altitude plot"></svg>
             </figure>
-
-            <!-- Plot 2 -->
             <figure class="plot">
-            <figcaption class="plot__title">Battery Voltage vs Time</figcaption>
-            <svg class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Voltage plot placeholder">
-                <rect x="0" y="0" width="520" height="210" fill="white"></rect>
-
-                <line x1="40" y1="20" x2="40" y2="180" stroke="#111" stroke-width="2"/>
-                <line x1="40" y1="180" x2="500" y2="180" stroke="#111" stroke-width="2"/>
-
-                <g stroke="#ddd" stroke-width="1">
-                <line x1="40" y1="140" x2="500" y2="140"/>
-                <line x1="40" y1="100" x2="500" y2="100"/>
-                <line x1="40" y1="60" x2="500" y2="60"/>
-                <line x1="120" y1="20" x2="120" y2="180"/>
-                <line x1="200" y1="20" x2="200" y2="180"/>
-                <line x1="280" y1="20" x2="280" y2="180"/>
-                <line x1="360" y1="20" x2="360" y2="180"/>
-                <line x1="440" y1="20" x2="440" y2="180"/>
-                </g>
-
-                <!-- trace (generated by JS) -->
-                <path class="trace"
-                    d=""
-                    fill="none"
-                    stroke="#111"
-                    stroke-width="4"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    style="display:none"/>
-
-                <text class="nodata"
-                    x="260"
-                    y="110"
-                    text-anchor="middle"
-                    font-size="14"
-                    fill="#5b5b5b">
-                No data
-                </text>
-            </svg>
+              <figcaption class="plot__title">Voltage vs Packet</figcaption>
+              <svg id="plotBat" class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Voltage plot"></svg>
             </figure>
-
-            <!-- Plot 3 -->
             <figure class="plot plot--wide">
-            <figcaption class="plot__title">IMU (Acceleration / Rotation) vs Time</figcaption>
-            <svg class="plot__svg" viewBox="0 0 1060 210" role="img" aria-label="IMU plot placeholder">
-                <rect x="0" y="0" width="1060" height="210" fill="white"></rect>
-
-                <line x1="40" y1="20" x2="40" y2="180" stroke="#111" stroke-width="2"/>
-                <line x1="40" y1="180" x2="1040" y2="180" stroke="#111" stroke-width="2"/>
-
-                <g stroke="#ddd" stroke-width="1">
-                <line x1="40" y1="140" x2="1040" y2="140"/>
-                <line x1="40" y1="100" x2="1040" y2="100"/>
-                <line x1="40" y1="60" x2="1040" y2="60"/>
-                <line x1="140" y1="20" x2="140" y2="180"/>
-                <line x1="240" y1="20" x2="240" y2="180"/>
-                <line x1="340" y1="20" x2="340" y2="180"/>
-                <line x1="440" y1="20" x2="440" y2="180"/>
-                <line x1="540" y1="20" x2="540" y2="180"/>
-                <line x1="640" y1="20" x2="640" y2="180"/>
-                <line x1="740" y1="20" x2="740" y2="180"/>
-                <line x1="840" y1="20" x2="840" y2="180"/>
-                <line x1="940" y1="20" x2="940" y2="180"/>
-                </g>
-
-                <!-- IMU trace A -->
-                <path class="trace trace-a"
-                    d=""
-                    fill="none"
-                    stroke="#111"
-                    stroke-width="4"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    style="display:none"/>
-
-                <!-- IMU trace B (dashed) -->
-                <path class="trace trace-b"
-                    d=""
-                    fill="none"
-                    stroke="#111"
-                    stroke-width="3"
-                    stroke-dasharray="8 8"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    style="display:none"/>
-
-                <!-- No data text -->
-                <text class="nodata"
-                    x="530"
-                    y="110"
-                    text-anchor="middle"
-                    font-size="14"
-                    fill="#5b5b5b">
-                No data
-                </text>
-            </svg>
+              <figcaption class="plot__title">IMU (Accel R and Gyro R) vs Packet</figcaption>
+              <svg id="plotIMU" class="plot__svg" viewBox="0 0 1060 210" role="img" aria-label="IMU plot"></svg>
             </figure>
-        </div>
-
-        <div class="footer-note">
-            Note: plots are placeholders (no telemetry backend in this prototype).
-        </div>
+          </div>
         </section>
 
-        <!-- RIGHT: 3D -->
-        <section class="panel" aria-label="3D view">
-        <h2 class="panel__title">3D View</h2>
-        <div class="three-wrap">
+        <section class="panel" aria-label="3D view and map">
+          <h2 class="panel__title">3D View</h2>
+          <div class="three-wrap">
             <canvas id="threeCanvas" class="three-canvas" aria-label="3D payload orientation canvas"></canvas>
-            <div class="three-hint">Drag to rotate • Scroll to zoom</div>
-        </div>
+            <div class="three-hint">Drag to rotate and scroll to zoom</div>
+          </div>
 
-        <div class="divider"></div>
+          <div class="divider"></div>
+          <h3 class="panel__subtitle">Orientation</h3>
+          <div class="kv">
+            <div class="kv__k">Roll</div><div class="kv__v"><span id="rollVal">--</span> <span class="unit">deg</span></div>
+            <div class="kv__k">Pitch</div><div class="kv__v"><span id="pitchVal">--</span> <span class="unit">deg</span></div>
+            <div class="kv__k">Yaw</div><div class="kv__v"><span id="yawVal">--</span> <span class="unit">deg</span></div>
+          </div>
 
-        <h3 class="panel__subtitle">Orientation (placeholder)</h3>
-        <div class="kv">
-            <div class="kv__k">Roll</div><div class="kv__v">— <span class="unit">deg</span></div>
-            <div class="kv__k">Pitch</div><div class="kv__v">— <span class="unit">deg</span></div>
-            <div class="kv__k">Yaw</div><div class="kv__v">— <span class="unit">deg</span></div>
-        </div>
+          <div class="divider"></div>
+          <h3 class="panel__subtitle">GPS Map</h3>
+          <div class="map-card">
+            <div id="mapCoords">No GPS fix yet</div>
+            <a id="mapLink" target="_blank" rel="noopener noreferrer">Open in map</a>
+          </div>
         </section>
-    </main>
+      </main>
+    </div>
   </div>
-</div>
 
   <script type="module" src="./app.js"></script>
 </body>
