@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CanSat Ground Station Dashboard</title>
+  <title>CanSat Ground Station Application</title>
   <link rel="stylesheet" href="./styles.css" />
   <script type="importmap">
     {
@@ -18,11 +18,17 @@
   <header class="topbar">
     <div class="topbar__left">
       <div class="title">CanSat Ground Station</div>
-      <div class="subtitle">CSV Playback + Live Telemetry UI</div>
+      <div class="subtitle">USB Telemetry + Live Monitoring Application</div>
     </div>
     <div class="topbar__right">
-      <label class="file-btn" for="csvFileInput">Load Telemetry CSV</label>
-      <input id="csvFileInput" type="file" accept=".csv,text/csv" hidden />
+      <select id="baudSelect" class="select select--compact" aria-label="Serial baud rate">
+        <option value="9600" selected>9600</option>
+        <option value="19200">19200</option>
+        <option value="57600">57600</option>
+        <option value="115200">115200</option>
+      </select>
+      <button class="btn btn--compact" type="button" id="connectBtn">Connect USB</button>
+      <button class="btn btn--ghost btn--compact" type="button" id="disconnectBtn" disabled>Disconnect</button>
       <div class="pill" id="sourceLabel">Source: Demo</div>
     </div>
   </header>
@@ -45,21 +51,6 @@
             <div class="kv__v" id="packetsLost">0</div>
             <div class="kv__k">GPS Sats</div>
             <div class="kv__v" id="gpsSats">--</div>
-          </div>
-
-          <div class="divider"></div>
-          <h3 class="panel__subtitle">Playback</h3>
-          <div class="playback">
-            <button class="btn" type="button" id="playPauseBtn">Pause</button>
-            <button class="btn btn--ghost" type="button" id="resetBtn">Reset</button>
-            <label class="playback__label" for="speedSelect">Speed</label>
-            <select id="speedSelect" class="select">
-              <option value="250">4x</option>
-              <option value="500" selected>2x</option>
-              <option value="1000">1x</option>
-            </select>
-            <input id="timeline" class="range" type="range" min="0" max="0" step="1" value="0" />
-            <div class="playback__meta" id="playbackMeta">Packet 0 / 0</div>
           </div>
 
           <div class="divider"></div>
@@ -94,7 +85,7 @@
             <div class="metric"><div class="metric__k">Pressure</div><div class="metric__v"><span id="pressureVal">--</span> <span class="unit">kPa</span></div></div>
             <div class="metric"><div class="metric__k">Battery Voltage</div><div class="metric__v"><span id="voltageVal">--</span> <span class="unit">V</span></div></div>
             <div class="metric"><div class="metric__k">GPS Altitude</div><div class="metric__v"><span id="gpsAltVal">--</span> <span class="unit">m</span></div></div>
-            <div class="metric"><div class="metric__k">GPS</div><div class="metric__v metric__v--small" id="gpsVal">Lat -- / Lon --</div></div>
+            <div class="metric"><div class="metric__k">GPS Fix</div><div class="metric__v metric__v--small" id="gpsFixVal">No Fix</div></div>
           </div>
 
           <h2 class="panel__title panel__title--spaced">Plots</h2>
@@ -130,9 +121,16 @@
           </div>
 
           <div class="divider"></div>
-          <h3 class="panel__subtitle">GPS Map</h3>
+          <h3 class="panel__subtitle">Location Mini Map</h3>
           <div class="map-card">
-            <div id="mapCoords">No GPS fix yet</div>
+            <iframe
+              id="mapFrame"
+              class="map-frame"
+              title="GPS location mini map"
+              loading="lazy"
+              referrerpolicy="no-referrer-when-downgrade"
+            ></iframe>
+            <div id="mapStatus">Waiting for GPS fix</div>
             <a id="mapLink" target="_blank" rel="noopener noreferrer">Open in map</a>
           </div>
         </section>

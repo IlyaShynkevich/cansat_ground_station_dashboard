@@ -17,6 +17,7 @@ body {
   color: var(--text);
   background: var(--bg);
   font: 16px/1.4 "Segoe UI", Tahoma, sans-serif;
+  overflow: hidden;
 }
 
 .topbar {
@@ -43,17 +44,23 @@ body {
   font-weight: 700;
 }
 .file-btn { cursor: pointer; border-color: var(--accent); color: var(--accent); }
+.btn--compact { padding: 6px 11px; border-radius: 999px; font-size: 13px; }
+.select--compact { max-width: 110px; padding: 5px 8px; border-radius: 999px; }
 
 .viewport {
   height: calc(100dvh - 64px);
-  overflow: auto;
+  overflow: hidden;
 }
-.fit-stage { min-height: 100%; padding: 10px; }
+.fit-stage {
+  height: 100%;
+  padding: 8px;
+}
 
 .layout {
   display: grid;
   grid-template-columns: minmax(260px, 320px) 1fr minmax(290px, 360px);
   gap: 12px;
+  height: 100%;
 }
 
 .panel {
@@ -62,6 +69,8 @@ body {
   border-radius: 12px;
   padding: 12px;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 .panel--center { display: flex; flex-direction: column; }
 
@@ -97,10 +106,6 @@ body {
 }
 .badge--muted { border-color: var(--border); }
 
-.playback { display: grid; gap: 8px; }
-.playback__label { color: var(--muted); font-size: 13px; font-weight: 800; }
-.playback__meta { color: var(--muted); font-size: 13px; font-weight: 700; }
-.range { width: 100%; }
 .select {
   border: 2px solid var(--border);
   border-radius: 8px;
@@ -212,6 +217,13 @@ body {
   display: grid;
   gap: 8px;
 }
+.map-frame {
+  width: 100%;
+  height: 150px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+}
+#mapStatus { font-weight: 700; color: var(--muted); }
 .map-card a { color: var(--accent); font-weight: 700; text-decoration: none; }
 .map-card a:hover { text-decoration: underline; }
 
