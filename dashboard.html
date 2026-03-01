@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CanSat Ground Station Application</title>
+  <title>CanSat Ground Station App</title>
   <link rel="stylesheet" href="./styles.css" />
   <script type="importmap">
     {
@@ -24,14 +24,10 @@
       <label class="file-btn" for="simCsvInput">Simulation CSV</label>
       <input id="simCsvInput" type="file" accept=".csv,text/csv" hidden />
       <button class="btn btn--ghost btn--compact" type="button" id="exportLogBtn">Export Log</button>
-      <select id="baudSelect" class="select select--compact" aria-label="Serial baud rate">
-        <option value="4800">4800</option>
-        <option value="9600">9600</option>
-        <option value="19200">19200</option>
-        <option value="38400">38400</option>
-        <option value="57600">57600</option>
-        <option value="115200" selected>115200</option>
+      <select id="portSelect" class="select select--compact select--port" aria-label="Serial COM port">
+        <option value="">Select COM port</option>
       </select>
+      <button class="btn btn--ghost btn--compact" type="button" id="refreshPortsBtn">Refresh Ports</button>
       <button class="btn btn--compact" type="button" id="connectBtn">Connect USB</button>
       <button class="btn btn--ghost btn--compact" type="button" id="disconnectBtn" disabled>Disconnect</button>
       <div class="pill" id="sourceLabel">Source: Demo</div>

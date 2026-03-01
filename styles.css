@@ -46,6 +46,7 @@ body {
 .file-btn { cursor: pointer; border-color: var(--accent); color: var(--accent); }
 .btn--compact { padding: 5px 10px; border-radius: 999px; font-size: 12px; }
 .select--compact { max-width: 100px; padding: 4px 8px; border-radius: 999px; }
+.select--port { min-width: 180px; max-width: 220px; }
 
 .viewport {
   height: calc(100dvh - 56px);

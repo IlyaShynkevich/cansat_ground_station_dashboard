@@ -1,25 +1,27 @@
 # Ground Station Dashboard
 
-Web dashboard for telemetry playback and monitoring.
+Desktop ground station app for telemetry monitoring.
 
 ## What it does
 
 - Displays mission status and key telemetry values.
-- Plays telemetry packet-by-packet from CSV files.
-- Includes playback controls with play/pause, speed change, timeline scrub, and reset.
+- Connects to a USB serial telemetry source from the desktop app.
+- Loads simulation pressure data from CSV files.
+- Exports captured telemetry to CSV.
 - Shows rolling plots for altitude, voltage, and IMU channels.
 - Updates a 3D orientation model from gyro values.
 - Provides GPS coordinate display with a direct map link.
 - Includes command panel UI with command echo.
 
-## How to use
+## How to run
 
-1. Open `dashboard.html` with VS Code Live Server (usually `http://localhost:5500/dashboard.html`).
-2. Use **Load Telemetry CSV** to import telemetry logs.
-3. Control playback with play/pause, speed selector, timeline scrubber, and reset button.
+1. Install dependencies with `npm install`.
+2. Start the desktop app with `npm start`.
+3. Use **Connect USB** for live telemetry or **Simulation CSV** to load pressure samples.
 
 ## Tech stack
 
+- Electron
 - HTML
 - CSS
 - JavaScript (ES modules)
@@ -27,5 +29,5 @@ Web dashboard for telemetry playback and monitoring.
 
 ## Notes
 
-- This is a frontend dashboard. There is no serial/MQTT backend wired yet.
-- If no CSV is loaded, demo telemetry is generated automatically.
+- The app serves the existing dashboard from a local `http://127.0.0.1` origin so browser APIs keep working inside Electron.
+- If multiple serial ports are available, the current app shell selects the first exposed serial device.

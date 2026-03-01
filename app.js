@@ -26,7 +26,8 @@ const elements = {
   checkBattery: document.getElementById("checkBattery"),
   connectBtn: document.getElementById("connectBtn"),
   disconnectBtn: document.getElementById("disconnectBtn"),
-  baudSelect: document.getElementById("baudSelect"),
+  portSelect: document.getElementById("portSelect"),
+  refreshPortsBtn: document.getElementById("refreshPortsBtn"),
   fullTelemetry: document.getElementById("fullTelemetry"),
   exportLogBtn: document.getElementById("exportLogBtn"),
   simCsvInput: document.getElementById("simCsvInput"),
@@ -69,15 +70,16 @@ let data = [];
 let index = 0;
 let cube = null;
 let serialPort = null;
-let serialReader = null;
 let serialHeaders = null;
-let serialReadActive = false;
 let badLineStreak = 0;
-let activeBaudRate = 115200;
 let simulationPressureRows = [];
+let serialBuffer = "";
+let availablePorts = [];
+let suppressCloseEvent = false;
 
 const tailSize = 80;
-const encoder = new TextEncoder();
+const fixedBaudRate = 115200;
+const serialApi = window.electronSerial || null;
 
 function toNumber(value) {
   const n = Number(String(value ?? "").trim());
@@ -473,7 +475,7 @@ function handleSerialLine(line) {
   if (!row) {
     badLineStreak += 1;
     if (badLineStreak === 25) {
-      elements.sourceLabel.textContent = "Source: USB data invalid (check baud)";
+      elements.sourceLabel.textContent = "Source: USB data invalid";
     }
     return;
   }
@@ -482,113 +484,124 @@ function handleSerialLine(line) {
   data.push(row);
   index = data.length - 1;
   if (data.length === 1) {
-    elements.sourceLabel.textContent = `Source: USB @ ${activeBaudRate}`;
+    elements.sourceLabel.textContent = `Source: ${serialPort?.path || "USB"} @ ${fixedBaudRate}`;
   }
   updateUi();
 }
 
-async function disconnectSerial(updateSource = true) {
-  serialReadActive = false;
-
-  if (serialReader) {
-    try {
-      await serialReader.cancel();
-    } catch (error) {
-      console.warn(error);
-    }
-    serialReader.releaseLock();
-    serialReader = null;
-  }
-
-  if (serialPort) {
-    try {
-      await serialPort.close();
-    } catch (error) {
-      console.warn(error);
-    }
-    serialPort = null;
-  }
-
-  elements.connectBtn.disabled = false;
-  elements.disconnectBtn.disabled = true;
-  elements.baudSelect.disabled = false;
-  if (updateSource) elements.sourceLabel.textContent = "Source: Demo";
+function handleSerialChunk(chunk) {
+  serialBuffer += chunk;
+  const lines = serialBuffer.split(/\r?\n/);
+  serialBuffer = lines.pop() ?? "";
+  lines.forEach(handleSerialLine);
 }
 
-async function readSerialLoop() {
-  const decoder = new TextDecoder();
-  let buffer = "";
+function renderPortOptions() {
+  const previous = elements.portSelect.value;
+  const options = ['<option value="">Select COM port</option>']
+    .concat(availablePorts.map((port) => {
+      const label = port.displayName && port.displayName !== port.path
+        ? `${port.path} - ${port.displayName}`
+        : port.path;
+      return `<option value="${port.path}">${label}</option>`;
+    }));
 
-  try {
-    while (serialReadActive && serialReader) {
-      const { value, done } = await serialReader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split(/\r?\n/);
-      buffer = lines.pop() ?? "";
-      lines.forEach(handleSerialLine);
-    }
-  } catch (error) {
-    console.error(error);
-    elements.sourceLabel.textContent = "Source: USB read error";
-  } finally {
-    await disconnectSerial(false);
-    if (!serialPort) {
-      elements.sourceLabel.textContent = data.length > 0 ? "Source: USB disconnected" : "Source: Demo";
-    }
+  elements.portSelect.innerHTML = options.join("");
+  if (availablePorts.some((port) => port.path === previous)) {
+    elements.portSelect.value = previous;
   }
 }
 
-async function connectSerial() {
-  if (!("serial" in navigator)) {
-    elements.sourceLabel.textContent = "Source: Web Serial not supported";
+async function refreshPorts() {
+  if (!serialApi) {
+    elements.sourceLabel.textContent = "Source: Electron serial bridge unavailable";
     return;
   }
 
   try {
-    const baudRate = Number(elements.baudSelect.value) || 115200;
-    activeBaudRate = baudRate;
-    const port = await navigator.serial.requestPort();
-    await port.open({ baudRate });
+    availablePorts = await serialApi.listPorts();
+    renderPortOptions();
+    if (!availablePorts.length) {
+      elements.sourceLabel.textContent = "Source: No COM ports detected";
+    }
+  } catch (error) {
+    console.error(error);
+    elements.sourceLabel.textContent = "Source: COM port scan failed";
+  }
+}
 
-    serialPort = port;
-    serialReader = port.readable?.getReader() || null;
-    serialReadActive = true;
+async function disconnectSerial(updateSource = true) {
+  const hadConnection = Boolean(serialPort);
+  serialPort = null;
+  serialBuffer = "";
+
+  if (serialApi && hadConnection) {
+    suppressCloseEvent = true;
+    try {
+      await serialApi.disconnect();
+    } catch (error) {
+      console.warn(error);
+    } finally {
+      suppressCloseEvent = false;
+    }
+  }
+  elements.connectBtn.disabled = false;
+  elements.disconnectBtn.disabled = true;
+  elements.portSelect.disabled = false;
+  elements.refreshPortsBtn.disabled = false;
+  if (updateSource) elements.sourceLabel.textContent = "Source: Demo";
+  refreshPorts();
+}
+
+async function connectSerial() {
+  if (!serialApi) {
+    elements.sourceLabel.textContent = "Source: Electron serial bridge unavailable";
+    return;
+  }
+
+  try {
+    const selectedPath = elements.portSelect.value;
+    if (!selectedPath) {
+      elements.sourceLabel.textContent = "Source: Select a COM port";
+      return;
+    }
+
+    const connection = await serialApi.connect(selectedPath);
+    serialPort = { path: connection.path };
     serialHeaders = null;
     badLineStreak = 0;
+    serialBuffer = "";
     data = [];
     index = 0;
     clearUi();
 
     elements.connectBtn.disabled = true;
     elements.disconnectBtn.disabled = false;
-    elements.baudSelect.disabled = true;
-    elements.sourceLabel.textContent = `Source: USB @ ${baudRate} (waiting data)`;
+    elements.portSelect.disabled = true;
+    elements.refreshPortsBtn.disabled = true;
+    elements.sourceLabel.textContent = `Source: ${connection.path} @ ${fixedBaudRate} (waiting data)`;
     updateQuickChecks(rowAt(index) || {});
-
-    if (serialReader) readSerialLoop();
   } catch (error) {
     console.error(error);
-    elements.sourceLabel.textContent = "Source: USB connection failed";
+    const message = String(error?.message || error || "Unknown error");
+    elements.sourceLabel.textContent = `Source: USB connection failed (${message})`;
+    elements.cmdEcho.textContent = `USB error: ${message}`;
     await disconnectSerial(false);
   }
 }
 
 async function sendCommand(cmd) {
-  if (!serialPort?.writable) {
+  if (!serialApi || !serialPort) {
     elements.cmdEcho.textContent = `${cmd} (not sent: no USB)`;
     return;
   }
 
-  const writer = serialPort.writable.getWriter();
   try {
-    await writer.write(encoder.encode(`${cmd}\n`));
+    await serialApi.write(`${cmd}\n`);
     elements.cmdEcho.textContent = cmd;
   } catch (error) {
     console.error(error);
     elements.cmdEcho.textContent = `${cmd} (send failed)`;
-  } finally {
-    writer.releaseLock();
   }
 }
 
@@ -616,16 +629,17 @@ function parseSimulationCsv(text) {
 
   const headers = lines[0].split(",").map(normalizeHeader);
   const pressureIndex = headers.findIndex((name) => name === "PRESSURE");
-  const index = pressureIndex >= 0 ? pressureIndex : 0;
+  const pressureColumnIndex = pressureIndex >= 0 ? pressureIndex : 0;
 
   return lines.slice(1)
     .map((line) => line.split(",").map((part) => part.trim()))
-    .map((cols) => toNumber(cols[index]))
+    .map((cols) => toNumber(cols[pressureColumnIndex]))
     .filter((value) => value != null);
 }
 
 elements.connectBtn.addEventListener("click", connectSerial);
 elements.disconnectBtn.addEventListener("click", () => disconnectSerial());
+elements.refreshPortsBtn.addEventListener("click", refreshPorts);
 elements.exportLogBtn.addEventListener("click", exportTelemetryLog);
 elements.simCsvInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
@@ -647,11 +661,16 @@ document.querySelectorAll("[data-cmd]").forEach((btn) => {
   });
 });
 
-if ("serial" in navigator) {
-  navigator.serial.addEventListener("disconnect", async (event) => {
-    if (event.target === serialPort) {
-      await disconnectSerial();
-    }
+if (serialApi) {
+  serialApi.onData(handleSerialChunk);
+  serialApi.onClose(async () => {
+    if (suppressCloseEvent) return;
+    await disconnectSerial(false);
+    elements.sourceLabel.textContent = data.length > 0 ? "Source: USB disconnected" : "Source: Demo";
+  });
+  serialApi.onError((message) => {
+    elements.sourceLabel.textContent = `Source: USB error (${message})`;
+    elements.cmdEcho.textContent = `USB error: ${message}`;
   });
 }
 
@@ -711,4 +730,5 @@ async function init3D() {
 }
 
 clearUi();
+refreshPorts();
 init3D();
