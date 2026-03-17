@@ -227,20 +227,47 @@ body {
   white-space: nowrap;
 }
 
-.three-wrap {
-  position: relative;
+.imu-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.imu-card {
   border: 2px solid var(--border);
   border-radius: 12px;
-  overflow: hidden;
-  height: 190px;
+  padding: 8px;
+  background: linear-gradient(180deg, #fafdff 0%, #eef3f7 100%);
 }
-.three-canvas { width: 100%; height: calc(100% - 33px); display: block; }
-.three-hint {
-  border-top: 2px solid var(--border);
-  color: var(--muted);
+
+.imu-card__title {
   font-size: 12px;
-  font-weight: 700;
-  padding: 6px 8px;
+  font-weight: 900;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.imu-card__stage {
+  height: 150px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top, rgba(15, 106, 158, 0.08), transparent 45%),
+    linear-gradient(180deg, #ffffff 0%, #edf3f8 100%);
+}
+
+.imu-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.imu-card__values {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
 }
 
 .map-card {
@@ -260,19 +287,11 @@ body {
 .map-card a { color: var(--accent); font-weight: 700; text-decoration: none; }
 .map-card a:hover { text-decoration: underline; }
 
-.three-fallback {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: #fff;
-  font-weight: 800;
-}
-
 @media (max-width: 1280px) {
   .layout { grid-template-columns: 1fr; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .plots { grid-template-columns: 1fr; }
   .plot--wide { grid-column: auto; }
   .telemetry-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .imu-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

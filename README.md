@@ -9,7 +9,7 @@ Desktop ground station app for telemetry monitoring.
 - Loads simulation pressure data from CSV files.
 - Exports captured telemetry to CSV.
 - Shows rolling plots for altitude, voltage, and IMU channels.
-- Updates a 3D orientation model from gyro values.
+- Shows live 3D IMU graphs for accelerometer and gyroscope data.
 - Provides GPS coordinate display with a direct map link.
 - Includes command panel UI with command echo.
 
@@ -25,7 +25,7 @@ Desktop ground station app for telemetry monitoring.
 - HTML
 - CSS
 - JavaScript (ES modules)
-- Three.js (for 3D view)
+- Three.js (for IMU 3D graphs)
 
 ## Notes
 

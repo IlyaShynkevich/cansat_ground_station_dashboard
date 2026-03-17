@@ -13,9 +13,8 @@ const elements = {
   currentVal: document.getElementById("currentVal"),
   gpsAltVal: document.getElementById("gpsAltVal"),
   gpsFixVal: document.getElementById("gpsFixVal"),
-  rollVal: document.getElementById("rollVal"),
-  pitchVal: document.getElementById("pitchVal"),
-  yawVal: document.getElementById("yawVal"),
+  accelVector: document.getElementById("accelVector"),
+  gyroVector: document.getElementById("gyroVector"),
   mapFrame: document.getElementById("mapFrame"),
   mapStatus: document.getElementById("mapStatus"),
   mapLink: document.getElementById("mapLink"),
@@ -68,7 +67,7 @@ const serialDefaultHeaders = [
 
 let data = [];
 let index = 0;
-let cube = null;
+let imuScenes = null;
 let serialPort = null;
 let serialHeaders = null;
 let badLineStreak = 0;
@@ -283,9 +282,8 @@ function clearUi() {
   elements.voltageVal.textContent = "--";
   elements.currentVal.textContent = "--";
   elements.gpsAltVal.textContent = "--";
-  elements.rollVal.textContent = "--";
-  elements.pitchVal.textContent = "--";
-  elements.yawVal.textContent = "--";
+  elements.accelVector.textContent = "X -- | Y -- | Z --";
+  elements.gyroVector.textContent = "X -- | Y -- | Z --";
   elements.cmdEcho.textContent = "--";
 
   updateMap(null, null);
@@ -342,9 +340,12 @@ function updateUi() {
   const gpsAlt = toNumber(row.GPS_ALTITUDE);
   const lat = toNumber(row.GPS_LATITUDE);
   const lon = toNumber(row.GPS_LONGITUDE);
-  const roll = toNumber(row.GYRO_R);
-  const pitch = toNumber(row.GYRO_P);
-  const yaw = toNumber(row.GYRO_Y);
+  const accelX = toNumber(row.ACCEL_R);
+  const accelY = toNumber(row.ACCEL_P);
+  const accelZ = toNumber(row.ACCEL_Y);
+  const gyroX = toNumber(row.GYRO_R);
+  const gyroY = toNumber(row.GYRO_P);
+  const gyroZ = toNumber(row.GYRO_Y);
 
   let pressure = pressureRaw;
   if (pressure != null && pressure > 2000) pressure = pressure / 1000;
@@ -357,14 +358,14 @@ function updateUi() {
   elements.voltageVal.textContent = formatNum(volt, 2);
   elements.currentVal.textContent = formatNum(current, 2);
   elements.gpsAltVal.textContent = formatNum(gpsAlt, 1);
-  elements.rollVal.textContent = formatNum(roll, 2);
-  elements.pitchVal.textContent = formatNum(pitch, 2);
-  elements.yawVal.textContent = formatNum(yaw, 2);
+  elements.accelVector.textContent = `X ${formatNum(accelX, 2)} | Y ${formatNum(accelY, 2)} | Z ${formatNum(accelZ, 2)}`;
+  elements.gyroVector.textContent = `X ${formatNum(gyroX, 2)} | Y ${formatNum(gyroY, 2)} | Z ${formatNum(gyroZ, 2)}`;
 
   updateMap(lat, lon);
 
-  if (cube) {
-    cube.rotation.set((pitch || 0) * 0.03, (yaw || 0) * 0.03, (roll || 0) * 0.03);
+  if (imuScenes) {
+    imuScenes.accel.update(accelX, accelY, accelZ);
+    imuScenes.gyro.update(gyroX, gyroY, gyroZ);
   }
 
   if (row.CMD_ECHO && row.CMD_ECHO !== "No command send yet") {
@@ -674,61 +675,104 @@ if (serialApi) {
   });
 }
 
-async function init3D() {
-  const canvas = document.getElementById("threeCanvas");
-  const wrap = canvas.closest(".three-wrap");
-  const fallback = document.createElement("div");
-  fallback.className = "three-fallback";
-  fallback.textContent = "3D init failed";
-  fallback.style.display = "none";
-  wrap.appendChild(fallback);
+async function initImu3D() {
+  const accelCanvas = document.getElementById("accelCanvas");
+  const gyroCanvas = document.getElementById("gyroCanvas");
+  if (!accelCanvas || !gyroCanvas) return;
+
   try {
     const THREE = await import("three");
-    const { OrbitControls } = await import("three/addons/controls/OrbitControls.js");
 
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-    camera.position.set(2.2, 1.5, 2.2);
+    function makeImuScene(canvas, color) {
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+      camera.position.set(3.2, 2.3, 3.6);
+      camera.lookAt(0, 0, 0);
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-    const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
-    keyLight.position.set(2, 4, 2);
-    scene.add(keyLight);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.95));
+      const keyLight = new THREE.DirectionalLight(0xffffff, 1.15);
+      keyLight.position.set(2, 3, 3);
+      scene.add(keyLight);
+      scene.add(new THREE.GridHelper(6, 6, 0xb7c4cf, 0xd9e1e7));
 
-    const geometry = new THREE.BoxGeometry(1, 0.55, 0.45);
-    const material = new THREE.MeshStandardMaterial({ color: 0xe9edf0, roughness: 0.6 });
-    cube = new THREE.Mesh(geometry, material);
-    scene.add(cube);
-    const edges = new THREE.EdgesGeometry(geometry);
-    cube.add(new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x15202b })));
-    scene.add(new THREE.GridHelper(8, 8, 0xb0bac4, 0xd6dde3));
+      const axes = new THREE.AxesHelper(1.85);
+      scene.add(axes);
 
-    function resize() {
-      const rect = canvas.getBoundingClientRect();
-      const w = Math.max(1, Math.floor(rect.width));
-      const h = Math.max(1, Math.floor(rect.height));
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
+      const origin = new THREE.Mesh(
+        new THREE.SphereGeometry(0.07, 18, 18),
+        new THREE.MeshStandardMaterial({ color: 0x15202b, roughness: 0.45 })
+      );
+      scene.add(origin);
+
+      const historyPoints = Array.from({ length: 32 }, (_, i) => new THREE.Vector3(i * 0.04, 0, 0));
+      const historyGeometry = new THREE.BufferGeometry().setFromPoints(historyPoints);
+      const historyLine = new THREE.Line(
+        historyGeometry,
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.35 })
+      );
+      scene.add(historyLine);
+
+      const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), 1, color, 0.28, 0.16);
+      scene.add(arrow);
+
+      const point = new THREE.Mesh(
+        new THREE.SphereGeometry(0.09, 18, 18),
+        new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.12, roughness: 0.35 })
+      );
+      scene.add(point);
+
+      function resize() {
+        const rect = canvas.getBoundingClientRect();
+        const w = Math.max(1, Math.floor(rect.width));
+        const h = Math.max(1, Math.floor(rect.height));
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      }
+
+      function update(x, y, z) {
+        const vector = new THREE.Vector3(x || 0, y || 0, z || 0);
+        const length = vector.length();
+        const dir = length > 0.0001 ? vector.clone().normalize() : new THREE.Vector3(1, 0, 0);
+        const scaledLength = Math.min(2.15, Math.max(0.18, length * 0.4));
+        arrow.setDirection(dir);
+        arrow.setLength(scaledLength, 0.28, 0.16);
+
+        const endpoint = dir.clone().multiplyScalar(scaledLength);
+        point.position.copy(endpoint);
+
+        historyPoints.push(endpoint.clone());
+        while (historyPoints.length > 32) historyPoints.shift();
+        historyGeometry.setFromPoints(historyPoints);
+      }
+
+      resize();
+      window.addEventListener("resize", resize);
+
+      return { renderer, scene, camera, update };
     }
-    window.addEventListener("resize", resize);
-    resize();
+
+    imuScenes = {
+      accel: makeImuScene(accelCanvas, 0x0f6a9e),
+      gyro: makeImuScene(gyroCanvas, 0xc62828),
+    };
 
     function animate() {
-      controls.update();
-      renderer.render(scene, camera);
+      if (!imuScenes) return;
+      imuScenes.accel.renderer.render(imuScenes.accel.scene, imuScenes.accel.camera);
+      imuScenes.gyro.renderer.render(imuScenes.gyro.scene, imuScenes.gyro.camera);
       requestAnimationFrame(animate);
     }
+
+    imuScenes.accel.update(0, 0, 0);
+    imuScenes.gyro.update(0, 0, 0);
     animate();
   } catch (error) {
     console.error(error);
-    fallback.style.display = "grid";
   }
 }
 
 clearUi();
 refreshPorts();
-init3D();
+initImu3D();
