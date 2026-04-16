@@ -23,3 +23,12 @@ contextBridge.exposeInMainWorld("electronSerial", {
     ipcRenderer.on("serial:error", (_, message) => listener(message));
   },
 });
+
+contextBridge.exposeInMainWorld("electronMonitor", {
+  getInfo() {
+    return ipcRenderer.invoke("monitor:get-info");
+  },
+  publishSnapshot(snapshot) {
+    ipcRenderer.send("monitor:publish", snapshot);
+  },
+});

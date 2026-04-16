@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const fs = require("node:fs");
 const http = require("node:http");
+const os = require("node:os");
 const path = require("node:path");
 const { SerialPort } = require("serialport");
 
@@ -15,13 +16,147 @@ const mimeTypes = {
 };
 
 let localOrigin = "";
+let staticPort = 0;
 let staticServer = null;
 let mainWindow = null;
 let activeSerialPort = null;
+let monitorSnapshot = buildDefaultMonitorSnapshot();
+const monitorClients = new Set();
+const remoteMonitorAssets = new Set(["phone.html", "phone.css", "phone.js"]);
 
-function resolveAssetPath(requestUrl) {
+function buildDefaultMonitorSnapshot() {
+  return {
+    updatedAt: new Date().toISOString(),
+    hasData: false,
+    sourceLabel: "Source: Demo",
+    connection: {
+      connected: false,
+      portPath: null,
+      selectedPort: "Not selected",
+      bridge: "Scanning COM ports",
+      baudRate: null,
+    },
+    mission: {
+      time: "--",
+      mode: "--",
+      state: "--",
+      packetsReceived: 0,
+      packetsLost: 0,
+      gpsSats: "--",
+    },
+    quickChecks: {
+      telemetryLink: "bad",
+      loggingReady: "warn",
+      simulationMode: "ok",
+      batteryOk: "warn",
+    },
+    metrics: {
+      altitude: "--",
+      temperature: "--",
+      pressure: "--",
+      voltage: "--",
+      current: "--",
+      gpsAltitude: "--",
+      gpsFix: "No Fix",
+    },
+    gps: {
+      fix: false,
+      latitude: null,
+      longitude: null,
+      display: "Waiting for GPS fix",
+      mapUrl: "",
+      points: [],
+    },
+    commands: {
+      lastSent: "--",
+      echo: "--",
+    },
+    telemetry: [],
+  };
+}
+
+function sanitizeMonitorSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return buildDefaultMonitorSnapshot();
+  }
+
+  const fallback = buildDefaultMonitorSnapshot();
+  return {
+    ...fallback,
+    ...snapshot,
+    updatedAt: typeof snapshot.updatedAt === "string" ? snapshot.updatedAt : new Date().toISOString(),
+    connection: { ...fallback.connection, ...(snapshot.connection || {}) },
+    mission: { ...fallback.mission, ...(snapshot.mission || {}) },
+    quickChecks: { ...fallback.quickChecks, ...(snapshot.quickChecks || {}) },
+    metrics: { ...fallback.metrics, ...(snapshot.metrics || {}) },
+    gps: {
+      ...fallback.gps,
+      ...(snapshot.gps || {}),
+      points: Array.isArray(snapshot.gps?.points) ? snapshot.gps.points : fallback.gps.points,
+    },
+    commands: { ...fallback.commands, ...(snapshot.commands || {}) },
+    telemetry: Array.isArray(snapshot.telemetry) ? snapshot.telemetry : fallback.telemetry,
+  };
+}
+
+function getLanPhoneUrls(port) {
+  if (!port) return [];
+  const urls = new Set();
+  const interfaces = os.networkInterfaces();
+
+  Object.values(interfaces).forEach((entries) => {
+    (entries || []).forEach((entry) => {
+      if (!entry || entry.family !== "IPv4" || entry.internal) return;
+      urls.add(`http://${entry.address}:${port}/phone.html`);
+    });
+  });
+
+  return [...urls];
+}
+
+function getMonitorInfo() {
+  const urls = getLanPhoneUrls(staticPort);
+  return {
+    port: staticPort,
+    primaryUrl: urls[0] || "",
+    urls,
+    fallbackUrl: staticPort ? `http://127.0.0.1:${staticPort}/phone.html` : "",
+    livePath: "/api/live",
+    snapshotPath: "/api/snapshot",
+  };
+}
+
+function broadcastMonitorSnapshot() {
+  for (const response of monitorClients) {
+    if (response.destroyed) {
+      monitorClients.delete(response);
+      continue;
+    }
+    response.write(`event: snapshot\ndata: ${JSON.stringify({
+      snapshot: monitorSnapshot,
+      monitor: getMonitorInfo(),
+    })}\n\n`);
+  }
+}
+
+function writeJson(response, statusCode, payload) {
+  response.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+  response.end(JSON.stringify(payload));
+}
+
+function closeMonitorClients() {
+  for (const response of monitorClients) {
+    if (!response.destroyed) response.end();
+  }
+  monitorClients.clear();
+}
+
+function resolveAssetPath(requestUrl, defaultFile = "dashboard.html") {
   const cleanPath = decodeURIComponent(requestUrl.split("?")[0]);
-  const relativePath = cleanPath === "/" ? "dashboard.html" : cleanPath.replace(/^\/+/, "");
+  const relativePath = cleanPath === "/" ? defaultFile : cleanPath.replace(/^\/+/, "");
   const filePath = path.resolve(projectRoot, relativePath);
 
   if (!filePath.startsWith(projectRoot)) {
@@ -33,9 +168,50 @@ function resolveAssetPath(requestUrl) {
 function createStaticServer() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((request, response) => {
-      const filePath = resolveAssetPath(request.url || "/");
+      const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
+      const remoteAddress = request.socket.remoteAddress || "";
+      const isLoopbackRequest = /^(::1|127\.0\.0\.1|::ffff:127\.0\.0\.1)$/.test(remoteAddress);
+
+      if (requestUrl.pathname === "/api/snapshot") {
+        writeJson(response, 200, {
+          snapshot: monitorSnapshot,
+          monitor: getMonitorInfo(),
+        });
+        return;
+      }
+
+      if (requestUrl.pathname === "/api/live") {
+        response.writeHead(200, {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-store",
+          Connection: "keep-alive",
+        });
+        response.write("retry: 2000\n\n");
+        monitorClients.add(response);
+        response.write(`event: snapshot\ndata: ${JSON.stringify({
+          snapshot: monitorSnapshot,
+          monitor: getMonitorInfo(),
+        })}\n\n`);
+
+        request.on("close", () => {
+          monitorClients.delete(response);
+        });
+        return;
+      }
+
+      const filePath = resolveAssetPath(
+        requestUrl.pathname,
+        isLoopbackRequest ? "dashboard.html" : "phone.html"
+      );
       if (!filePath) {
         response.writeHead(403).end("Forbidden");
+        return;
+      }
+
+      const relativeAssetPath = path.relative(projectRoot, filePath).replace(/\\/g, "/");
+      if (!isLoopbackRequest && !remoteMonitorAssets.has(relativeAssetPath)) {
+        response.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+        response.end("Forbidden");
         return;
       }
 
@@ -57,10 +233,11 @@ function createStaticServer() {
     });
 
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(0, "0.0.0.0", () => {
       staticServer = server;
       const address = server.address();
-      localOrigin = `http://127.0.0.1:${address.port}`;
+      staticPort = address.port;
+      localOrigin = `http://127.0.0.1:${staticPort}`;
       resolve(localOrigin);
     });
   });
@@ -137,6 +314,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   closeActiveSerialPort().catch(() => {});
+  closeMonitorClients();
   staticServer?.close();
 });
 
@@ -147,6 +325,9 @@ ipcMain.handle("serial:list", async () => {
     displayName: port.friendlyName || port.manufacturer || port.path,
     manufacturer: port.manufacturer || "",
     serialNumber: port.serialNumber || "",
+    vendorId: port.vendorId || "",
+    productId: port.productId || "",
+    pnpId: port.pnpId || "",
   }));
 });
 
@@ -196,7 +377,7 @@ ipcMain.handle("serial:disconnect", async () => {
 
 ipcMain.handle("serial:write", async (_, payload) => {
   if (!activeSerialPort?.isOpen) {
-    throw new Error("No USB connection");
+    throw new Error("No serial link");
   }
 
   await new Promise((resolve, reject) => {
@@ -213,4 +394,11 @@ ipcMain.handle("serial:write", async (_, payload) => {
   });
 
   return true;
+});
+
+ipcMain.handle("monitor:get-info", async () => getMonitorInfo());
+
+ipcMain.on("monitor:publish", (_, snapshot) => {
+  monitorSnapshot = sanitizeMonitorSnapshot(snapshot);
+  broadcastMonitorSnapshot();
 });

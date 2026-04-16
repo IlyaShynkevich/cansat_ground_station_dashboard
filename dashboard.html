@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CanSat Ground Station App</title>
+  <title>Skybound Ground Station App</title>
   <link rel="stylesheet" href="./styles.css" />
   <script type="importmap">
     {
@@ -17,8 +17,8 @@
 <body>
   <header class="topbar">
     <div class="topbar__left">
-      <div class="title">CanSat Ground Station</div>
-      <div class="subtitle">USB Telemetry + Live Monitoring Application</div>
+      <div class="title">Skybound Ground Station</div>
+      <div class="subtitle">Serial / XBee Telemetry + Live Monitoring Application</div>
     </div>
     <div class="topbar__right">
       <label class="file-btn" for="simCsvInput">Simulation CSV</label>
@@ -28,7 +28,7 @@
         <option value="">Select COM port</option>
       </select>
       <button class="btn btn--ghost btn--compact" type="button" id="refreshPortsBtn">Refresh Ports</button>
-      <button class="btn btn--compact" type="button" id="connectBtn">Connect USB</button>
+      <button class="btn btn--compact" type="button" id="connectBtn">Connect Link</button>
       <button class="btn btn--ghost btn--compact" type="button" id="disconnectBtn" disabled>Disconnect</button>
       <div class="pill" id="sourceLabel">Source: Demo</div>
     </div>
@@ -64,6 +64,30 @@
           </ul>
 
           <div class="divider"></div>
+          <h3 class="panel__subtitle">Phone Monitor</h3>
+          <div class="phone-monitor">
+            <div class="phone-monitor__status" id="phoneMonitorStatus">Preparing phone</div>
+            <div class="phone-monitor__meta">
+              <div class="phone-monitor__meta-row">
+                <div class="phone-monitor__meta-k">Port</div>
+                <div class="phone-monitor__meta-v" id="linkPort">Not selected</div>
+              </div>
+              <div class="phone-monitor__meta-row">
+                <div class="phone-monitor__meta-k">Bridge</div>
+                <div class="phone-monitor__meta-v" id="linkBridge">Scanning COM ports</div>
+              </div>
+            </div>
+            <a
+              class="phone-monitor__link"
+              id="phoneMonitorUrl"
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+            >Waiting for phone URL</a>
+            <div class="phone-monitor__hint" id="phoneMonitorHint">Same Wi-Fi or hotspot.</div>
+          </div>
+
+          <div class="divider"></div>
           <h3 class="panel__subtitle">Command Panel</h3>
           <div class="cmd">
             <button class="btn" type="button" data-cmd="CAL">CAL (Zero Alt)</button>
@@ -73,8 +97,14 @@
             <button class="btn" type="button" data-cmd="SIM ACTIVATE">SIM ACTIVATE</button>
           </div>
           <div class="cmd-echo">
-            <div class="cmd-echo__k">CMD_ECHO</div>
-            <div class="cmd-echo__v" id="cmdEcho">--</div>
+            <div class="cmd-echo__row">
+              <div class="cmd-echo__k">Last Sent</div>
+              <div class="cmd-echo__v" id="cmdSent">--</div>
+            </div>
+            <div class="cmd-echo__row">
+              <div class="cmd-echo__k">Device Echo</div>
+              <div class="cmd-echo__v" id="cmdEcho">--</div>
+            </div>
           </div>
         </section>
 
@@ -84,7 +114,7 @@
             <div class="metric"><div class="metric__k">Altitude</div><div class="metric__v"><span id="altitudeVal">--</span> <span class="unit">m</span></div></div>
             <div class="metric"><div class="metric__k">Temperature</div><div class="metric__v"><span id="tempVal">--</span> <span class="unit">C</span></div></div>
             <div class="metric"><div class="metric__k">Pressure</div><div class="metric__v"><span id="pressureVal">--</span> <span class="unit">kPa</span></div></div>
-            <div class="metric"><div class="metric__k">Voltage</div><div class="metric__v"><span id="voltageVal">--</span></div></div>
+            <div class="metric"><div class="metric__k">Voltage</div><div class="metric__v"><span id="voltageVal">--</span> <span class="unit">V</span></div></div>
             <div class="metric"><div class="metric__k">Current</div><div class="metric__v"><span id="currentVal">--</span> <span class="unit">A</span></div></div>
             <div class="metric"><div class="metric__k">GPS Altitude</div><div class="metric__v"><span id="gpsAltVal">--</span> <span class="unit">m</span></div></div>
             <div class="metric"><div class="metric__k">GPS Fix</div><div class="metric__v metric__v--small" id="gpsFixVal">No Fix</div></div>
@@ -93,25 +123,29 @@
           <h2 class="panel__title panel__title--spaced">Plots</h2>
           <div class="plots" aria-label="Plots grid">
             <figure class="plot">
-              <figcaption class="plot__title">Altitude vs Packet</figcaption>
+              <figcaption class="plot__title">Altitude (m) vs Time</figcaption>
               <svg id="plotAlt" class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Altitude plot"></svg>
             </figure>
             <figure class="plot">
-              <figcaption class="plot__title">Voltage vs Sample</figcaption>
+              <figcaption class="plot__title">Voltage (V) vs Time</figcaption>
               <svg id="plotBat" class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Voltage plot"></svg>
             </figure>
             <figure class="plot">
-              <figcaption class="plot__title">Current vs Sample</figcaption>
+              <figcaption class="plot__title">Current (A) vs Time</figcaption>
               <svg id="plotCurrent" class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Current plot"></svg>
             </figure>
-            <figure class="plot plot--wide">
-              <figcaption class="plot__title">IMU (Accel R and Gyro R) vs Packet</figcaption>
-              <svg id="plotIMU" class="plot__svg" viewBox="0 0 1060 210" role="img" aria-label="IMU plot"></svg>
+            <figure class="plot">
+              <figcaption class="plot__title">Pressure (kPa) vs Time</figcaption>
+              <svg id="plotPressure" class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Pressure plot"></svg>
+            </figure>
+            <figure class="plot">
+              <figcaption class="plot__title">Temperature (C) vs Time</figcaption>
+              <svg id="plotTemp" class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Temperature plot"></svg>
             </figure>
           </div>
 
           <h2 class="panel__title panel__title--spaced">Full Telemetry</h2>
-          <div id="fullTelemetry" class="telemetry-grid" aria-label="All telemetry fields"></div>
+          <div id="fullTelemetry" class="telemetry-grid" aria-label="Full telemetry fields"></div>
         </section>
 
         <section class="panel" aria-label="IMU graphs and map">
@@ -145,6 +179,16 @@
             ></iframe>
             <div id="mapStatus">Waiting for GPS fix</div>
             <a id="mapLink" target="_blank" rel="noopener noreferrer">Open in map</a>
+            <div class="map-points" aria-label="Map point summary">
+              <div class="map-point">
+                <div class="map-point__label">Point A</div>
+                <div class="map-point__value" id="mapPointA">Waiting for GPS fix</div>
+              </div>
+              <div class="map-point">
+                <div class="map-point__label">Point B</div>
+                <div class="map-point__value" id="mapPointB">Waiting for next point</div>
+              </div>
+            </div>
           </div>
         </section>
       </main>

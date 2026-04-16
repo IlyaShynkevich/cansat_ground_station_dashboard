@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Skybound Phone Monitor</title>
+  <link rel="stylesheet" href="./phone.css" />
+</head>
+<body>
+  <main class="phone-shell" role="main">
+    <header class="hero">
+      <div>
+        <div class="hero__eyebrow">Skybound Ground Station</div>
+        <h1 class="hero__title">Phone Monitor</h1>
+      </div>
+      <div class="hero__status" id="transportStatus">Connecting to live feed</div>
+    </header>
+
+    <section class="panel">
+      <div class="panel__eyebrow">Link Status</div>
+      <div class="status-row">
+        <div class="status-row__text" id="sourceLabel">Source: Demo</div>
+        <div class="chip chip--warn" id="liveBadge">Waiting</div>
+      </div>
+      <div class="panel__hint" id="lastUpdate">Waiting for telemetry</div>
+    </section>
+
+    <section class="metric-grid" id="metricGrid" aria-label="Live telemetry metrics"></section>
+
+    <section class="panel">
+      <div class="panel__eyebrow">Mission</div>
+      <div class="detail-grid">
+        <div class="detail">
+          <div class="detail__label">Mission Time</div>
+          <div class="detail__value" id="missionTime">--</div>
+        </div>
+        <div class="detail">
+          <div class="detail__label">Mode</div>
+          <div class="detail__value" id="modeVal">--</div>
+        </div>
+        <div class="detail">
+          <div class="detail__label">State</div>
+          <div class="detail__value" id="stateVal">--</div>
+        </div>
+        <div class="detail">
+          <div class="detail__label">Packets Received</div>
+          <div class="detail__value" id="packetsReceivedVal">0</div>
+        </div>
+        <div class="detail">
+          <div class="detail__label">Packets Lost</div>
+          <div class="detail__value" id="packetsLostVal">0</div>
+        </div>
+        <div class="detail">
+          <div class="detail__label">GPS Sats</div>
+          <div class="detail__value" id="gpsSatsVal">--</div>
+        </div>
+      </div>
+      <div class="checks" id="quickChecks" aria-label="Quick check status"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__eyebrow">Ground Link</div>
+      <div class="detail-grid">
+        <div class="detail">
+          <div class="detail__label">Selected Port</div>
+          <div class="detail__value detail__value--small" id="linkPort">Not selected</div>
+        </div>
+        <div class="detail">
+          <div class="detail__label">Detected Bridge</div>
+          <div class="detail__value detail__value--small" id="linkBridge">Scanning COM ports</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__eyebrow">GPS</div>
+      <div class="detail-grid">
+        <div class="detail">
+          <div class="detail__label">Position</div>
+          <div class="detail__value detail__value--small" id="gpsDisplay">Waiting for GPS fix</div>
+        </div>
+        <div class="detail">
+          <div class="detail__label">Map</div>
+          <a class="detail__link detail__value--small" id="mapLink" href="#" target="_blank" rel="noopener noreferrer">Waiting for GPS fix</a>
+        </div>
+      </div>
+      <div class="list" id="gpsPoints"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__eyebrow">Commands</div>
+      <div class="detail-grid">
+        <div class="detail">
+          <div class="detail__label">Last Sent</div>
+          <div class="detail__value detail__value--small" id="cmdSent">--</div>
+        </div>
+        <div class="detail">
+          <div class="detail__label">Echo</div>
+          <div class="detail__value detail__value--small" id="cmdEcho">--</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__eyebrow">Full Telemetry</div>
+      <div class="telemetry-grid" id="telemetryGrid"></div>
+    </section>
+  </main>
+
+  <script type="module" src="./phone.js"></script>
+</body>
+</html>
