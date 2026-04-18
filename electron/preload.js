@@ -4,8 +4,8 @@ contextBridge.exposeInMainWorld("electronSerial", {
   listPorts() {
     return ipcRenderer.invoke("serial:list");
   },
-  connect(portPath) {
-    return ipcRenderer.invoke("serial:connect", portPath);
+  connect(portPath, baudRate) {
+    return ipcRenderer.invoke("serial:connect", portPath, baudRate);
   },
   disconnect() {
     return ipcRenderer.invoke("serial:disconnect");
@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld("electronSerial", {
     return ipcRenderer.invoke("serial:write", payload);
   },
   onData(listener) {
-    ipcRenderer.on("serial:data", (_, chunk) => listener(chunk));
+    ipcRenderer.on("serial:data", (_, payload) => listener(payload));
   },
   onClose(listener) {
     ipcRenderer.on("serial:close", (_, portPath) => listener(portPath));

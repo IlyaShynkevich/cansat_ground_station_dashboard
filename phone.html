@@ -31,6 +31,10 @@
       <div class="panel__eyebrow">Mission</div>
       <div class="detail-grid">
         <div class="detail">
+          <div class="detail__label">Team ID</div>
+          <div class="detail__value" id="teamIdVal">--</div>
+        </div>
+        <div class="detail">
           <div class="detail__label">Mission Time</div>
           <div class="detail__value" id="missionTime">--</div>
         </div>
@@ -73,7 +77,20 @@
     </section>
 
     <section class="panel">
+      <div class="panel__eyebrow">Plots</div>
+      <div class="plot-grid" id="plotGrid" aria-label="Live telemetry plots"></div>
+    </section>
+
+    <section class="panel">
       <div class="panel__eyebrow">GPS</div>
+      <iframe
+        id="mapFrame"
+        class="map-frame"
+        title="Live GPS map"
+        loading="lazy"
+        referrerpolicy="no-referrer-when-downgrade"
+      ></iframe>
+      <div class="panel__hint" id="mapStatus">Waiting for GPS fix</div>
       <div class="detail-grid">
         <div class="detail">
           <div class="detail__label">Position</div>

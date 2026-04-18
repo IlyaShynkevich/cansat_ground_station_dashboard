@@ -8,8 +8,8 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        "three": "./node_modules/three/build/three.module.js",
+        "three/addons/": "./node_modules/three/examples/jsm/"
       }
     }
   </script>
@@ -24,6 +24,13 @@
       <label class="file-btn" for="simCsvInput">Simulation CSV</label>
       <input id="simCsvInput" type="file" accept=".csv,text/csv" hidden />
       <button class="btn btn--ghost btn--compact" type="button" id="exportLogBtn">Export Log</button>
+      <select id="baudSelect" class="select select--compact" aria-label="Serial baud rate">
+        <option value="9600">9600 baud</option>
+        <option value="19200">19200 baud</option>
+        <option value="38400">38400 baud</option>
+        <option value="57600">57600 baud</option>
+        <option value="115200" selected>115200 baud</option>
+      </select>
       <select id="portSelect" class="select select--compact select--port" aria-label="Serial COM port">
         <option value="">Select COM port</option>
       </select>
@@ -106,6 +113,13 @@
               <div class="cmd-echo__v" id="cmdEcho">--</div>
             </div>
           </div>
+
+          <div class="divider"></div>
+          <h3 class="panel__subtitle">Link Debug</h3>
+          <div class="serial-debug">
+            <div class="serial-debug__status" id="serialDebugStatus">No serial traffic yet.</div>
+            <pre class="serial-debug__preview" id="serialDebugPreview">Waiting for serial data...</pre>
+          </div>
         </section>
 
         <section class="panel panel--center" aria-label="Telemetry and plots">
@@ -124,23 +138,23 @@
           <div class="plots" aria-label="Plots grid">
             <figure class="plot">
               <figcaption class="plot__title">Altitude (m) vs Time</figcaption>
-              <svg id="plotAlt" class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Altitude plot"></svg>
+              <svg id="plotAlt" class="plot__svg" viewBox="0 0 540 225" role="img" aria-label="Altitude plot"></svg>
             </figure>
             <figure class="plot">
               <figcaption class="plot__title">Voltage (V) vs Time</figcaption>
-              <svg id="plotBat" class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Voltage plot"></svg>
+              <svg id="plotBat" class="plot__svg" viewBox="0 0 540 225" role="img" aria-label="Voltage plot"></svg>
             </figure>
             <figure class="plot">
               <figcaption class="plot__title">Current (A) vs Time</figcaption>
-              <svg id="plotCurrent" class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Current plot"></svg>
+              <svg id="plotCurrent" class="plot__svg" viewBox="0 0 540 225" role="img" aria-label="Current plot"></svg>
             </figure>
             <figure class="plot">
               <figcaption class="plot__title">Pressure (kPa) vs Time</figcaption>
-              <svg id="plotPressure" class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Pressure plot"></svg>
+              <svg id="plotPressure" class="plot__svg" viewBox="0 0 540 225" role="img" aria-label="Pressure plot"></svg>
             </figure>
             <figure class="plot">
               <figcaption class="plot__title">Temperature (C) vs Time</figcaption>
-              <svg id="plotTemp" class="plot__svg" viewBox="0 0 520 210" role="img" aria-label="Temperature plot"></svg>
+              <svg id="plotTemp" class="plot__svg" viewBox="0 0 540 225" role="img" aria-label="Temperature plot"></svg>
             </figure>
           </div>
 

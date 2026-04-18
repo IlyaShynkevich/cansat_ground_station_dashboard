@@ -28,6 +28,7 @@ const elements = {
   checkBattery: document.getElementById("checkBattery"),
   connectBtn: document.getElementById("connectBtn"),
   disconnectBtn: document.getElementById("disconnectBtn"),
+  baudSelect: document.getElementById("baudSelect"),
   portSelect: document.getElementById("portSelect"),
   refreshPortsBtn: document.getElementById("refreshPortsBtn"),
   linkPort: document.getElementById("linkPort"),
@@ -38,6 +39,8 @@ const elements = {
   fullTelemetry: document.getElementById("fullTelemetry"),
   exportLogBtn: document.getElementById("exportLogBtn"),
   simCsvInput: document.getElementById("simCsvInput"),
+  serialDebugStatus: document.getElementById("serialDebugStatus"),
+  serialDebugPreview: document.getElementById("serialDebugPreview"),
 };
 
 const plots = {
@@ -83,6 +86,47 @@ const serialDefaultHeaders = [
 ];
 
 const serialHeaderSet = new Set(serialDefaultHeaders);
+const serialHeaderAliasMap = Object.freeze({
+  TEAM: "TEAM_ID",
+  TEAMID: "TEAM_ID",
+  MISSIONTIME: "MISSION_TIME",
+  MISSION_CLOCK: "MISSION_TIME",
+  PACKETNUMBER: "PACKET_COUNT",
+  PACKETNO: "PACKET_COUNT",
+  PACKETCOUNT: "PACKET_COUNT",
+  TEMP: "TEMPERATURE",
+  TEMPC: "TEMPERATURE",
+  TEMPERATUREC: "TEMPERATURE",
+  PRESS: "PRESSURE",
+  PRESSUREPA: "PRESSURE",
+  PRESSUREKPA: "PRESSURE",
+  VOLTS: "VOLTAGE",
+  BATTERY: "VOLTAGE",
+  BATTERYVOLTAGE: "VOLTAGE",
+  CURRENTA: "CURRENT",
+  GYROX: "GYRO_R",
+  GYROY: "GYRO_P",
+  GYROZ: "GYRO_Y",
+  ACCELX: "ACCEL_R",
+  ACCELY: "ACCEL_P",
+  ACCELZ: "ACCEL_Y",
+  GPSTIMEUTC: "GPS_TIME",
+  GPSALT: "GPS_ALTITUDE",
+  GPSALTITUDEM: "GPS_ALTITUDE",
+  GPSLAT: "GPS_LATITUDE",
+  GPSLON: "GPS_LONGITUDE",
+  GPSLONG: "GPS_LONGITUDE",
+  GPSSAT: "GPS_SATS",
+  GPSSATELLITES: "GPS_SATS",
+  CMDECHO: "CMD_ECHO",
+  CMDARGUMENT: "CMD_ARG",
+});
+const outboundCommandMap = Object.freeze({
+  "CX ON": "CX ON",
+  "CX OFF": "CX OFF",
+});
+const defaultCommandTeamId = "1049";
+const serialFixedTelemetryFieldCount = serialDefaultHeaders.length - 1;
 
 let data = [];
 let index = 0;
@@ -97,16 +141,26 @@ let simulationActive = false;
 let simulationTimer = null;
 let simulationUsesSyntheticGps = false;
 let serialBuffer = "";
+let serialByteCount = 0;
+let serialValidLineCount = 0;
+let serialInvalidLineCount = 0;
+let serialBinaryChunkCount = 0;
+let serialPreviewEntries = [];
+let serialDebugHint = "No serial traffic yet.";
 let availablePorts = [];
 let suppressCloseEvent = false;
 let lastSentCommand = "--";
 let lastMapEmbedUrl = "";
+let currentBaudRate = 115200;
+let lastKnownTeamId = defaultCommandTeamId;
 
 const tailSize = 80;
-const fixedBaudRate = 115200;
+const defaultBaudRate = 115200;
 const simulationFallbackDelayMs = 1000;
 const simulationMinDelayMs = 150;
 const simulationMaxDelayMs = 2000;
+const serialPreviewLimit = 8;
+const serialPreviewTextLimit = 140;
 const serialApi = window.electronSerial || null;
 const monitorApi = window.electronMonitor || null;
 
@@ -147,12 +201,17 @@ function normalizeHeader(name) {
     .replace(/[^A-Z0-9_]/g, "");
 }
 
+function canonicalHeader(name) {
+  const normalized = normalizeHeader(name);
+  return serialHeaderAliasMap[normalized] || normalized;
+}
+
 function isTimeToken(value) {
   return /^\d{2}:\d{2}:\d{2}$/.test(String(value ?? "").trim());
 }
 
 function looksLikeTelemetryCols(cols) {
-  if (cols.length < serialDefaultHeaders.length) return false;
+  if (cols.length < serialFixedTelemetryFieldCount) return false;
   return (
     toNumber(cols[0]) != null &&
     isTimeToken(cols[1]) &&
@@ -186,6 +245,93 @@ function isMostlyPrintableAscii(text) {
     if (c === 9 || c === 10 || c === 13 || (c >= 32 && c <= 126)) printable += 1;
   }
   return printable / text.length >= 0.92;
+}
+
+function isMostlyPrintableBytes(bytes) {
+  if (!Array.isArray(bytes) || !bytes.length) return false;
+  let printable = 0;
+  for (let i = 0; i < bytes.length; i += 1) {
+    const c = bytes[i];
+    if (c === 9 || c === 10 || c === 13 || (c >= 32 && c <= 126)) printable += 1;
+  }
+  return printable / bytes.length >= 0.92;
+}
+
+function bytesToHex(bytes, limit = 24) {
+  if (!Array.isArray(bytes) || !bytes.length) return "--";
+  const slice = bytes.slice(0, limit);
+  const hex = slice.map((value) => value.toString(16).padStart(2, "0")).join(" ");
+  return bytes.length > limit ? `${hex} ...` : hex;
+}
+
+function sanitizePreviewText(text, limit = serialPreviewTextLimit) {
+  const visible = String(text ?? "")
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")
+    .replace(/[^\x20-\x7E]/g, (ch) => `\\x${ch.charCodeAt(0).toString(16).padStart(2, "0")}`);
+  return visible.length > limit ? `${visible.slice(0, limit)}...` : visible;
+}
+
+function updateSerialDebugPanel() {
+  if (!elements.serialDebugStatus || !elements.serialDebugPreview) return;
+  const binaryPart = serialBinaryChunkCount ? ` | ${serialBinaryChunkCount} binary chunk${serialBinaryChunkCount === 1 ? "" : "s"}` : "";
+  elements.serialDebugStatus.textContent = `${serialByteCount} bytes | ${serialValidLineCount} valid rows | ${serialInvalidLineCount} invalid rows | ${currentBaudRate} baud${binaryPart} | ${serialDebugHint}`;
+  elements.serialDebugPreview.textContent = serialPreviewEntries.length
+    ? serialPreviewEntries.join("\n")
+    : "Waiting for serial data...";
+}
+
+function setSerialDebugHint(hint) {
+  serialDebugHint = hint;
+  updateSerialDebugPanel();
+}
+
+function pushSerialPreview(prefix, text) {
+  const entry = `${prefix} ${text}`.trim();
+  if (!entry) return;
+  if (serialPreviewEntries[serialPreviewEntries.length - 1] === entry) {
+    updateSerialDebugPanel();
+    return;
+  }
+  serialPreviewEntries.push(entry);
+  while (serialPreviewEntries.length > serialPreviewLimit) serialPreviewEntries.shift();
+  updateSerialDebugPanel();
+}
+
+function resetSerialDiagnostics() {
+  serialBuffer = "";
+  serialByteCount = 0;
+  serialValidLineCount = 0;
+  serialInvalidLineCount = 0;
+  serialBinaryChunkCount = 0;
+  serialPreviewEntries = [];
+  serialDebugHint = "No serial traffic yet.";
+  updateSerialDebugPanel();
+}
+
+function getSelectedBaudRate() {
+  const baud = Number(elements.baudSelect?.value || defaultBaudRate);
+  return Number.isFinite(baud) && baud > 0 ? baud : defaultBaudRate;
+}
+
+function normalizeSerialPayload(payload) {
+  if (typeof payload === "string") {
+    return {
+      text: payload,
+      bytes: [],
+      byteLength: payload.length,
+    };
+  }
+
+  if (payload && typeof payload === "object") {
+    return {
+      text: typeof payload.text === "string" ? payload.text : "",
+      bytes: Array.isArray(payload.bytes) ? payload.bytes : [],
+      byteLength: Number.isFinite(payload.byteLength) ? payload.byteLength : (Array.isArray(payload.bytes) ? payload.bytes.length : 0),
+    };
+  }
+
+  return { text: "", bytes: [], byteLength: 0 };
 }
 
 function formatNum(value, digits = 2) {
@@ -538,7 +684,7 @@ function buildMonitorSnapshot() {
       portPath: serialPort?.path || null,
       selectedPort: elements.linkPort.textContent || "Not selected",
       bridge: elements.linkBridge.textContent || "Scanning COM ports",
-      baudRate: serialPort ? fixedBaudRate : null,
+      baudRate: serialPort ? currentBaudRate : null,
     },
     mission: {
       time: row?.MISSION_TIME || "--",
@@ -601,12 +747,17 @@ async function initPhoneMonitor() {
   try {
     const info = await monitorApi.getInfo();
     if (info.primaryUrl) {
-      setPhoneMonitorState("Phone ready", info.primaryUrl, "Same Wi-Fi or hotspot.");
+      const hint = info.usingFallbackPort
+        ? `Private token link active. Port ${info.preferredPort} is busy, using this temporary link.`
+        : `Private token link on static port ${info.preferredPort}. Same Wi-Fi or hotspot.`;
+      setPhoneMonitorState("Phone ready", info.primaryUrl, hint);
     } else {
       setPhoneMonitorState(
         "Waiting for network",
         "",
-        "Connect laptop to Wi-Fi or hotspot."
+        info.preferredPort
+          ? `Connect laptop to Wi-Fi or hotspot. Private phone link will stay on port ${info.preferredPort}.`
+          : "Connect laptop to Wi-Fi or hotspot."
       );
     }
   } catch (error) {
@@ -628,19 +779,22 @@ function setDot(dot, cls) {
 
 function buildBaseGrid(svg, options = {}) {
   const { wide = false, yAxisLabel = "", xAxisLabel = "Time" } = options;
-  const width = wide ? 1060 : 520;
-  const right = wide ? 1040 : 500;
-  const axisCenterX = 40 + ((right - 40) / 2);
+  const width = wide ? 1100 : 540;
+  const left = 46;
+  const top = 22;
+  const bottom = 188;
+  const right = wide ? 1072 : 516;
+  const axisCenterX = left + ((right - left) / 2);
   const yAxisText = yAxisLabel
-    ? `<text x="16" y="100" text-anchor="middle" dominant-baseline="middle" fill="#5d6a75" font-size="11" font-weight="700" transform="rotate(-90 16 100)">${yAxisLabel}</text>`
+    ? `<text x="18" y="105" text-anchor="middle" dominant-baseline="middle" fill="#5d6a75" font-size="12" font-weight="700" transform="rotate(-90 18 105)">${yAxisLabel}</text>`
     : "";
   const xAxisText = xAxisLabel
-    ? `<text x="${axisCenterX}" y="202" text-anchor="middle" fill="#5d6a75" font-size="11" font-weight="700">${xAxisLabel}</text>`
+    ? `<text x="${axisCenterX}" y="217" text-anchor="middle" fill="#5d6a75" font-size="12" font-weight="700">${xAxisLabel}</text>`
     : "";
   svg.innerHTML = `
-    <rect x="0" y="0" width="${width}" height="210" fill="#fff"></rect>
-    <line x1="40" y1="20" x2="40" y2="180" stroke="#15202b" stroke-width="2"></line>
-    <line x1="40" y1="180" x2="${right}" y2="180" stroke="#15202b" stroke-width="2"></line>
+    <rect x="0" y="0" width="${width}" height="225" fill="#fff"></rect>
+    <line x1="${left}" y1="${top}" x2="${left}" y2="${bottom}" stroke="#15202b" stroke-width="2"></line>
+    <line x1="${left}" y1="${bottom}" x2="${right}" y2="${bottom}" stroke="#15202b" stroke-width="2"></line>
     ${yAxisText}
     ${xAxisText}
   `;
@@ -669,10 +823,10 @@ function renderSeries(svg, series, options = {}) {
   const { wide = false, unit = "", digits = 2 } = options;
   buildBaseGrid(svg, options);
   if (!series.length || !series.some((s) => s.points.length > 1)) {
-    const x = wide ? 530 : 260;
+    const x = wide ? 550 : 270;
     svg.insertAdjacentHTML(
       "beforeend",
-      `<text x="${x}" y="110" text-anchor="middle" fill="#5d6a75" font-size="14">No data</text>`
+      `<text x="${x}" y="113" text-anchor="middle" fill="#5d6a75" font-size="15" font-weight="700">No data</text>`
     );
     return;
   }
@@ -684,13 +838,13 @@ function renderSeries(svg, series, options = {}) {
   const yMin = yMinRaw - pad;
   const yMax = yMaxRaw + pad;
   const rect = wide
-    ? { left: 40, top: 20, right: 1040, bottom: 180 }
-    : { left: 40, top: 20, right: 500, bottom: 180 };
+    ? { left: 46, top: 22, right: 1072, bottom: 188 }
+    : { left: 46, top: 22, right: 516, bottom: 188 };
 
   svg.insertAdjacentHTML(
     "beforeend",
-    `<text x="${rect.left + 6}" y="${rect.top + 12}" fill="#5d6a75" font-size="11" font-weight="700">${formatPlotValue(yMaxRaw, digits, unit)}</text>` +
-    `<text x="${rect.left + 6}" y="${rect.bottom - 6}" fill="#5d6a75" font-size="11" font-weight="700">${formatPlotValue(yMinRaw, digits, unit)}</text>`
+    `<text x="${rect.left + 8}" y="${rect.top + 14}" fill="#5d6a75" font-size="12" font-weight="700">${formatPlotValue(yMaxRaw, digits, unit)}</text>` +
+    `<text x="${rect.left + 8}" y="${rect.bottom - 7}" fill="#5d6a75" font-size="12" font-weight="700">${formatPlotValue(yMinRaw, digits, unit)}</text>`
   );
 
   series.forEach((s) => {
@@ -720,11 +874,11 @@ function renderSeries(svg, series, options = {}) {
     );
 
     if (last.y != null) {
-      const labelX = Math.min(rect.right - 6, sx(last.x) + 8);
-      const labelY = Math.max(rect.top + 12, sy(last.y) - 8);
+      const labelX = Math.min(rect.right - 8, sx(last.x) + 10);
+      const labelY = Math.max(rect.top + 14, sy(last.y) - 10);
       svg.insertAdjacentHTML(
         "beforeend",
-        `<text x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" fill="${s.color}" font-size="12" font-weight="700">${formatPlotValue(last.y, digits, unit)}</text>`
+        `<text x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" fill="${s.color}" font-size="13" font-weight="700">${formatPlotValue(last.y, digits, unit)}</text>`
       );
     }
   });
@@ -929,7 +1083,12 @@ function updateUi() {
 }
 
 function coerceRow(headers, cols) {
-  const row = Object.fromEntries(headers.map((h, j) => [h, cols[j] ?? ""]));
+  const row = Object.fromEntries(serialDefaultHeaders.map((key) => [key, ""]));
+  headers.forEach((header, indexValue) => {
+    const key = canonicalHeader(header);
+    if (!serialHeaderSet.has(key)) return;
+    row[key] = cols[indexValue] ?? "";
+  });
   if (!row.PACKET_COUNT) {
     row.PACKET_COUNT = String(data.length + 1);
   }
@@ -963,15 +1122,183 @@ function isValidTelemetryRow(row) {
   return numericHits >= 4;
 }
 
+function splitPacketTokens(line) {
+  if (line.includes(",")) {
+    return line.split(",").map((token) => token.trim()).filter(Boolean);
+  }
+  if (line.includes(";")) {
+    return line.split(";").map((token) => token.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function parseIndexedSerialRow(line) {
+  const tokens = splitPacketTokens(line);
+  if (tokens.length < 6) return null;
+
+  const pairs = [];
+  for (const token of tokens) {
+    const match = token.match(/^(\d{1,2})\s*[:=]\s*(.*)$/);
+    if (!match) return null;
+    pairs.push({
+      indexValue: Number(match[1]),
+      value: match[2].trim(),
+    });
+  }
+
+  const usesZeroBased = pairs.some((pair) => pair.indexValue === 0);
+  const offset = usesZeroBased ? 0 : 1;
+  const cols = [];
+  pairs.forEach((pair) => {
+    const targetIndex = pair.indexValue - offset;
+    if (targetIndex < 0 || targetIndex >= serialDefaultHeaders.length) return;
+    cols[targetIndex] = pair.value;
+  });
+
+  const row = coerceRow(serialDefaultHeaders, cols);
+  return isValidTelemetryRow(row) ? row : null;
+}
+
+function parseNamedSerialRow(line) {
+  const tokens = splitPacketTokens(line);
+  if (tokens.length < 4) return null;
+
+  const row = Object.fromEntries(serialDefaultHeaders.map((key) => [key, ""]));
+  let matchedFields = 0;
+
+  for (const token of tokens) {
+    const match = token.match(/^([A-Za-z][A-Za-z0-9_ \-]*)\s*[:=]\s*(.*)$/);
+    if (!match) return null;
+    const key = canonicalHeader(match[1]);
+    if (!serialHeaderSet.has(key)) continue;
+    row[key] = match[2].trim();
+    matchedFields += 1;
+  }
+
+  if (!matchedFields) return null;
+  if (!row.PACKET_COUNT) row.PACKET_COUNT = String(data.length + 1);
+  return isValidTelemetryRow(row) ? row : null;
+}
+
+function parseAckPacket(line) {
+  const cols = parseCsvLine(line);
+  if (cols.length < 3) return null;
+
+  const kind = String(cols[0] ?? "").trim().toUpperCase();
+  if (!["ACK", "NACK", "ERR", "ERROR"].includes(kind)) return null;
+
+  return {
+    kind,
+    teamId: String(cols[1] ?? "").trim(),
+    message: cols.slice(2).join(",").trim(),
+  };
+}
+
+function handleAckPacket(line) {
+  const ack = parseAckPacket(line);
+  if (!ack) return false;
+
+  if (ack.teamId) lastKnownTeamId = ack.teamId;
+  const label = [ack.kind, ack.teamId, ack.message].filter(Boolean).join(" ");
+  elements.cmdEcho.textContent = label || ack.kind;
+  pushSerialPreview(`${ack.kind}>`, sanitizePreviewText(line));
+  if (/INVALIDCOMMAND/i.test(ack.message)) {
+    setSerialDebugHint("Device rejected the command. Check the exact command spelling.");
+  } else {
+    setSerialDebugHint("Device command response received.");
+  }
+  publishMonitorSnapshot();
+  return true;
+}
+
+function takeInlineAckPacket(buffer) {
+  const match = buffer.match(/^(ACK|NACK|ERR|ERROR),([^,\r\n]+),([^,\r\n]+?)(?=(ACK|NACK|ERR|ERROR),|\d+,\d{2}:\d{2}:\d{2},\d+,|$)/i);
+  return match ? match[0] : null;
+}
+
+function takeInlineTelemetryPacket(buffer) {
+  const num = "-?\\d+(?:\\.\\d+)?";
+  const time = "\\d{2}:\\d{2}:\\d{2}";
+  const text = "[^,\\r\\n]+";
+  const finalText = "[^,\\r\\n]+?";
+  const pattern = new RegExp(
+    `^(\\d+,${time},\\d+,${text},${text},${num},${num},${num},${num},${num},${num},${num},${num},${num},${num},${num},${time},${num},${num},${num},${num},${finalText}(?:,${text})?)(?=(?:ACK|NACK|ERR|ERROR|BOOT),|\\d+,${time},\\d+,|$)`,
+    "i"
+  );
+  const match = buffer.match(pattern);
+  return match ? match[1] : null;
+}
+
+function consumeInlineStructuredPackets() {
+  let consumedAny = false;
+
+  while (serialBuffer) {
+    const trimmed = serialBuffer.replace(/^\s+/, "");
+    if (trimmed !== serialBuffer) {
+      serialBuffer = trimmed;
+      continue;
+    }
+
+    const ackPacket = takeInlineAckPacket(serialBuffer);
+    if (ackPacket) {
+      handleAckPacket(ackPacket);
+      serialBuffer = serialBuffer.slice(ackPacket.length);
+      consumedAny = true;
+      continue;
+    }
+
+    const telemetryPacket = takeInlineTelemetryPacket(serialBuffer);
+    if (telemetryPacket) {
+      handleSerialLine(telemetryPacket);
+      serialBuffer = serialBuffer.slice(telemetryPacket.length);
+      consumedAny = true;
+      continue;
+    }
+
+    break;
+  }
+
+  return consumedAny;
+}
+
+function getCommandTeamId() {
+  const latestTelemetryTeamId = data.length ? String(data[data.length - 1]?.TEAM_ID || "").trim() : "";
+  if (latestTelemetryTeamId) return latestTelemetryTeamId;
+  return lastKnownTeamId || defaultCommandTeamId;
+}
+
+function buildOutboundCommand(cmd) {
+  const normalized = outboundCommandMap[cmd] || cmd;
+  const teamId = getCommandTeamId();
+
+  if (normalized === "CX ON") {
+    return { display: cmd, payload: `CMD,${teamId},CX,ON\r` };
+  }
+  if (normalized === "CX OFF") {
+    return { display: cmd, payload: `CMD,${teamId},CX,OFF\r` };
+  }
+  if (normalized === "CAL") {
+    return { display: cmd, payload: `CMD,${teamId},CAL\r` };
+  }
+
+  return { display: cmd, payload: `${normalized}\r` };
+}
+
 function parseSerialRow(line) {
   if (!isMostlyPrintableAscii(line)) return null;
+
+  const indexedRow = parseIndexedSerialRow(line);
+  if (indexedRow) return indexedRow;
+
+  const namedRow = parseNamedSerialRow(line);
+  if (namedRow) return namedRow;
 
   const cols = parseCsvLine(line);
   if (cols.length < 8) return null;
 
-  const maybeHeader = cols.map(normalizeHeader);
+  const maybeHeader = cols.map(canonicalHeader);
   if (maybeHeader.includes("PACKET_COUNT") && maybeHeader.includes("MISSION_TIME")) {
-    serialHeaders = serialDefaultHeaders;
+    serialHeaders = maybeHeader;
     return null;
   }
 
@@ -989,28 +1316,63 @@ function parseSerialRow(line) {
 function handleSerialLine(line) {
   const clean = line.trim();
   if (!clean) return;
+  if (handleAckPacket(clean)) return;
   const row = parseSerialRow(clean);
   if (!row) {
+    serialInvalidLineCount += 1;
+    pushSerialPreview("BAD>", sanitizePreviewText(clean));
+    setSerialDebugHint("Text arrived but it did not match the expected telemetry format.");
     badLineStreak += 1;
     if (badLineStreak === 25) {
-      elements.sourceLabel.textContent = "Source: Serial link data invalid";
+      elements.sourceLabel.textContent = `Source: ${serialPort?.path || "Link"} @ ${currentBaudRate} (invalid telemetry)`;
       publishMonitorSnapshot();
     }
     return;
   }
   badLineStreak = 0;
+  serialValidLineCount += 1;
+  pushSerialPreview("ROW>", sanitizePreviewText(clean));
+  setSerialDebugHint("Valid telemetry rows received.");
+  if (row.TEAM_ID) lastKnownTeamId = String(row.TEAM_ID).trim();
   row._SEQ = String(data.length);
   data.push(row);
   index = data.length - 1;
   if (data.length === 1) {
-    elements.sourceLabel.textContent = `Source: ${serialPort?.path || "Link"} @ ${fixedBaudRate}`;
+    elements.sourceLabel.textContent = `Source: ${serialPort?.path || "Link"} @ ${currentBaudRate}`;
   }
   updateUi();
 }
 
-function handleSerialChunk(chunk) {
-  serialBuffer += chunk;
-  const lines = serialBuffer.split(/\r?\n/);
+function handleSerialChunk(payload) {
+  const chunk = normalizeSerialPayload(payload);
+  if (!chunk.text && !chunk.byteLength) return;
+
+  serialByteCount += chunk.byteLength || chunk.text.length;
+
+  if (chunk.bytes.length && !isMostlyPrintableBytes(chunk.bytes)) {
+    serialBinaryChunkCount += 1;
+    pushSerialPreview("HEX>", bytesToHex(chunk.bytes));
+    setSerialDebugHint("Binary or API-style frames detected. Check XBee mode and baud.");
+    if (data.length === 0) {
+      elements.sourceLabel.textContent = `Source: ${serialPort?.path || "Link"} @ ${currentBaudRate} (binary data)`;
+      publishMonitorSnapshot();
+    }
+  }
+
+  serialBuffer += chunk.text;
+  if (consumeInlineStructuredPackets()) {
+    if (!serialBuffer) return;
+  }
+
+  if (data.length === 0 && serialByteCount > 0 && !/[\r\n]/.test(serialBuffer)) {
+    pushSerialPreview("BUF>", sanitizePreviewText(serialBuffer));
+    setSerialDebugHint("Receiving bytes but no line ending yet.");
+    elements.sourceLabel.textContent = `Source: ${serialPort?.path || "Link"} @ ${currentBaudRate} (receiving bytes, waiting line end)`;
+    publishMonitorSnapshot();
+    return;
+  }
+
+  const lines = serialBuffer.split(/\r\n|\n|\r/);
   serialBuffer = lines.pop() ?? "";
   lines.forEach(handleSerialLine);
 }
@@ -1058,7 +1420,7 @@ async function refreshPorts() {
 async function disconnectSerial(updateSource = true) {
   const hadConnection = Boolean(serialPort);
   serialPort = null;
-  serialBuffer = "";
+  resetSerialDiagnostics();
 
   if (serialApi && hadConnection) {
     suppressCloseEvent = true;
@@ -1072,6 +1434,7 @@ async function disconnectSerial(updateSource = true) {
   }
   elements.connectBtn.disabled = false;
   elements.disconnectBtn.disabled = true;
+  elements.baudSelect.disabled = false;
   elements.portSelect.disabled = false;
   elements.refreshPortsBtn.disabled = false;
   if (updateSource) elements.sourceLabel.textContent = "Source: Demo";
@@ -1088,31 +1451,35 @@ async function connectSerial() {
 
   try {
     const selectedPath = elements.portSelect.value;
+    const selectedBaudRate = getSelectedBaudRate();
     if (!selectedPath) {
       elements.sourceLabel.textContent = "Source: Select a COM port";
       publishMonitorSnapshot();
       return;
     }
 
-    const connection = await serialApi.connect(selectedPath);
+    const connection = await serialApi.connect(selectedPath, selectedBaudRate);
     stopSimulationPlayback();
     serialPort = availablePorts.find((port) => port.path === connection.path) || {
       path: connection.path,
       displayName: connection.path,
       manufacturer: "",
     };
+    currentBaudRate = connection.baudRate || selectedBaudRate;
     serialHeaders = null;
     badLineStreak = 0;
-    serialBuffer = "";
+    resetSerialDiagnostics();
     data = [];
     index = 0;
     clearUi();
+    setSerialDebugHint("Listening for telemetry. If the link stays silent, try 9600 baud for XBee defaults.");
 
     elements.connectBtn.disabled = true;
     elements.disconnectBtn.disabled = false;
+    elements.baudSelect.disabled = true;
     elements.portSelect.disabled = true;
     elements.refreshPortsBtn.disabled = true;
-    elements.sourceLabel.textContent = `Source: ${connection.path} @ ${fixedBaudRate} (waiting data)`;
+    elements.sourceLabel.textContent = `Source: ${connection.path} @ ${currentBaudRate} (waiting data)`;
     updateQuickChecks(rowAt(index) || {});
     publishMonitorSnapshot();
   } catch (error) {
@@ -1125,25 +1492,26 @@ async function connectSerial() {
 }
 
 async function sendCommand(cmd) {
+  const outbound = buildOutboundCommand(cmd);
   if (!serialApi || !serialPort) {
-    lastSentCommand = cmd;
-    elements.cmdSent.textContent = cmd;
-    elements.cmdEcho.textContent = `${cmd} (not sent: no link)`;
+    lastSentCommand = outbound.display;
+    elements.cmdSent.textContent = outbound.display;
+    elements.cmdEcho.textContent = `${outbound.payload.trim()} (not sent: no link)`;
     publishMonitorSnapshot();
     return;
   }
 
   try {
-    await serialApi.write(`${cmd}\n`);
-    lastSentCommand = cmd;
-    elements.cmdSent.textContent = cmd;
-    elements.cmdEcho.textContent = cmd;
+    await serialApi.write(outbound.payload);
+    lastSentCommand = outbound.display;
+    elements.cmdSent.textContent = outbound.display;
+    elements.cmdEcho.textContent = outbound.payload.trim();
     publishMonitorSnapshot();
   } catch (error) {
     console.error(error);
-    lastSentCommand = cmd;
-    elements.cmdSent.textContent = cmd;
-    elements.cmdEcho.textContent = `${cmd} (send failed)`;
+    lastSentCommand = outbound.display;
+    elements.cmdSent.textContent = outbound.display;
+    elements.cmdEcho.textContent = `${outbound.payload.trim()} (send failed)`;
     publishMonitorSnapshot();
   }
 }
@@ -1207,6 +1575,10 @@ function parseSimulationCsv(text) {
 
 elements.connectBtn.addEventListener("click", connectSerial);
 elements.disconnectBtn.addEventListener("click", () => disconnectSerial());
+elements.baudSelect.addEventListener("change", () => {
+  if (!serialPort) currentBaudRate = getSelectedBaudRate();
+  updateSerialDebugPanel();
+});
 elements.refreshPortsBtn.addEventListener("click", refreshPorts);
 elements.portSelect.addEventListener("change", updateLinkPrep);
 elements.exportLogBtn.addEventListener("click", exportTelemetryLog);
@@ -1248,6 +1620,139 @@ if (serialApi) {
     elements.cmdEcho.textContent = `Link error: ${message}`;
     publishMonitorSnapshot();
   });
+}
+
+function projectImuPoint(x, y, z, width, height, scale) {
+  return {
+    x: (width / 2) + ((x - y) * scale * 0.78),
+    y: (height / 2) - (z * scale) + ((x + y) * scale * 0.28),
+  };
+}
+
+function makeImuFallbackScene(canvas, color) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return { update() {} };
+  }
+
+  const history = [];
+  let vector = { x: 0, y: 0, z: 0 };
+
+  function drawLine3D(width, height, scale, from, to, stroke, lineWidth = 1.2) {
+    const start = projectImuPoint(from.x, from.y, from.z, width, height, scale);
+    const end = projectImuPoint(to.x, to.y, to.z, width, height, scale);
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+  }
+
+  function draw(recordHistory = false) {
+    const width = Math.max(1, canvas.clientWidth);
+    const height = Math.max(1, canvas.clientHeight);
+    const scale = Math.min(width, height) * 0.22;
+
+    ctx.clearRect(0, 0, width, height);
+
+    for (let step = -2; step <= 2; step += 1) {
+      drawLine3D(width, height, scale, { x: -1.8, y: step * 0.45, z: 0 }, { x: 1.8, y: step * 0.45, z: 0 }, "rgba(180, 196, 210, 0.75)");
+      drawLine3D(width, height, scale, { x: step * 0.45, y: -1.8, z: 0 }, { x: step * 0.45, y: 1.8, z: 0 }, "rgba(180, 196, 210, 0.75)");
+    }
+
+    drawLine3D(width, height, scale, { x: 0, y: 0, z: 0 }, { x: 1.8, y: 0, z: 0 }, "#0b74ff", 1.8);
+    drawLine3D(width, height, scale, { x: 0, y: 0, z: 0 }, { x: 0, y: 1.8, z: 0 }, "#f3a000", 1.8);
+    drawLine3D(width, height, scale, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1.8 }, "#69c73d", 1.8);
+
+    const length = Math.hypot(vector.x, vector.y, vector.z);
+    const gain = length > 0.0001 ? Math.min(1.7, Math.max(0.3, length * 0.7)) / length : 0;
+    const endpoint = {
+      x: vector.x * gain,
+      y: vector.y * gain,
+      z: vector.z * gain,
+    };
+
+    if (recordHistory) {
+      history.push(endpoint);
+      while (history.length > 28) history.shift();
+    }
+
+    if (history.length > 1) {
+      ctx.beginPath();
+      history.forEach((point, index) => {
+        const projected = projectImuPoint(point.x, point.y, point.z, width, height, scale);
+        if (index === 0) ctx.moveTo(projected.x, projected.y);
+        else ctx.lineTo(projected.x, projected.y);
+      });
+      ctx.strokeStyle = `${color}88`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    const origin = projectImuPoint(0, 0, 0, width, height, scale);
+    const point = projectImuPoint(endpoint.x, endpoint.y, endpoint.z, width, height, scale);
+
+    ctx.beginPath();
+    ctx.moveTo(origin.x, origin.y);
+    ctx.lineTo(point.x, point.y);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#15202b";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    ctx.fillStyle = "#5d6a75";
+    ctx.font = "700 11px Segoe UI";
+    const labelX = projectImuPoint(1.9, 0, 0, width, height, scale);
+    const labelY = projectImuPoint(0, 1.9, 0, width, height, scale);
+    const labelZ = projectImuPoint(0, 0, 1.95, width, height, scale);
+    ctx.fillText("X", labelX.x + 4, labelX.y);
+    ctx.fillText("Y", labelY.x + 4, labelY.y);
+    ctx.fillText("Z", labelZ.x + 4, labelZ.y);
+  }
+
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(1, Math.floor(rect.width));
+    const height = Math.max(1, Math.floor(rect.height));
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.floor(width * dpr));
+    canvas.height = Math.max(1, Math.floor(height * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    draw(false);
+  }
+
+  window.addEventListener("resize", resize);
+  resize();
+
+  return {
+    update(x, y, z) {
+      vector = {
+        x: x || 0,
+        y: y || 0,
+        z: z || 0,
+      };
+      draw(true);
+    },
+  };
+}
+
+function initImuCanvasFallback(accelCanvas, gyroCanvas) {
+  imuScenes = {
+    accel: makeImuFallbackScene(accelCanvas, "#0f6a9e"),
+    gyro: makeImuFallbackScene(gyroCanvas, "#c62828"),
+  };
+  imuScenes.accel.update(0, 0, 0);
+  imuScenes.gyro.update(0, 0, 0);
 }
 
 async function initImu3D() {
@@ -1314,11 +1819,11 @@ async function initImu3D() {
 
       function resize() {
         const rect = canvas.getBoundingClientRect();
-        const w = Math.max(1, Math.floor(rect.width));
-        const h = Math.max(1, Math.floor(rect.height));
+        const width = Math.max(1, Math.floor(rect.width));
+        const height = Math.max(1, Math.floor(rect.height));
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-        renderer.setSize(w, h, false);
-        camera.aspect = w / h;
+        renderer.setSize(width, height, false);
+        camera.aspect = width / height;
         camera.updateProjectionMatrix();
       }
 
@@ -1340,7 +1845,6 @@ async function initImu3D() {
 
       resize();
       window.addEventListener("resize", resize);
-
       return { renderer, scene, camera, controls, update };
     }
 
@@ -1350,7 +1854,7 @@ async function initImu3D() {
     };
 
     function animate() {
-      if (!imuScenes) return;
+      if (!imuScenes?.accel?.renderer || !imuScenes?.gyro?.renderer) return;
       imuScenes.accel.controls.update();
       imuScenes.gyro.controls.update();
       imuScenes.accel.renderer.render(imuScenes.accel.scene, imuScenes.accel.camera);
@@ -1362,10 +1866,13 @@ async function initImu3D() {
     imuScenes.gyro.update(0, 0, 0);
     animate();
   } catch (error) {
-    console.error(error);
+    console.warn("3D IMU renderer unavailable, using fallback renderer.", error);
+    initImuCanvasFallback(accelCanvas, gyroCanvas);
   }
 }
 
+currentBaudRate = getSelectedBaudRate();
+resetSerialDiagnostics();
 clearUi();
 initPhoneMonitor();
 refreshPorts();

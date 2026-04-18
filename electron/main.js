@@ -1,9 +1,16 @@
 const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { SerialPort } = require("serialport");
+
+// This app does not require GPU acceleration, and some lab/VM laptops crash
+// Electron's Chromium GPU process during startup. Force a software path.
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch("disable-gpu");
+app.commandLine.appendSwitch("disable-gpu-compositing");
 
 const projectRoot = path.resolve(__dirname, "..");
 const mimeTypes = {
@@ -14,10 +21,13 @@ const mimeTypes = {
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
 };
+const preferredMonitorPort = 63668;
 
 let localOrigin = "";
 let staticPort = 0;
 let staticServer = null;
+let monitorUsesFallbackPort = false;
+let remoteMonitorToken = "";
 let mainWindow = null;
 let activeSerialPort = null;
 let monitorSnapshot = buildDefaultMonitorSnapshot();
@@ -114,15 +124,56 @@ function getLanPhoneUrls(port) {
   return [...urls];
 }
 
+function getMonitorTokenFile() {
+  return path.join(app.getPath("userData"), "phone-monitor-auth.json");
+}
+
+function loadOrCreateMonitorToken() {
+  const tokenFile = getMonitorTokenFile();
+
+  try {
+    const raw = fs.readFileSync(tokenFile, "utf8");
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.token === "string" && parsed.token.length >= 24) {
+      return parsed.token;
+    }
+  } catch {}
+
+  const token = crypto.randomBytes(24).toString("hex");
+
+  try {
+    fs.mkdirSync(path.dirname(tokenFile), { recursive: true });
+    fs.writeFileSync(tokenFile, JSON.stringify({ token }, null, 2), "utf8");
+  } catch (error) {
+    console.warn("Could not persist phone monitor token:", error.message);
+  }
+
+  return token;
+}
+
+function appendMonitorToken(url) {
+  if (!url || !remoteMonitorToken) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}token=${encodeURIComponent(remoteMonitorToken)}`;
+}
+
+function isAuthorizedRemoteRequest(requestUrl, isLoopbackRequest) {
+  if (isLoopbackRequest) return true;
+  if (!remoteMonitorToken) return false;
+  return requestUrl.searchParams.get("token") === remoteMonitorToken;
+}
+
 function getMonitorInfo() {
-  const urls = getLanPhoneUrls(staticPort);
+  const urls = getLanPhoneUrls(staticPort).map((url) => appendMonitorToken(url));
   return {
     port: staticPort,
+    preferredPort: preferredMonitorPort,
     primaryUrl: urls[0] || "",
     urls,
-    fallbackUrl: staticPort ? `http://127.0.0.1:${staticPort}/phone.html` : "",
-    livePath: "/api/live",
-    snapshotPath: "/api/snapshot",
+    fallbackUrl: staticPort ? appendMonitorToken(`http://127.0.0.1:${staticPort}/phone.html`) : "",
+    usingFallbackPort: monitorUsesFallbackPort,
+    livePath: appendMonitorToken("/api/live"),
+    snapshotPath: appendMonitorToken("/api/snapshot"),
   };
 }
 
@@ -165,82 +216,108 @@ function resolveAssetPath(requestUrl, defaultFile = "dashboard.html") {
   return filePath;
 }
 
-function createStaticServer() {
-  return new Promise((resolve, reject) => {
-    const server = http.createServer((request, response) => {
-      const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
-      const remoteAddress = request.socket.remoteAddress || "";
-      const isLoopbackRequest = /^(::1|127\.0\.0\.1|::ffff:127\.0\.0\.1)$/.test(remoteAddress);
+function handleStaticRequest(request, response) {
+  const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
+  const remoteAddress = request.socket.remoteAddress || "";
+  const isLoopbackRequest = /^(::1|127\.0\.0\.1|::ffff:127\.0\.0\.1)$/.test(remoteAddress);
+  const needsRemoteAuth = !isLoopbackRequest && (
+    requestUrl.pathname === "/" ||
+    requestUrl.pathname === "/phone.html" ||
+    requestUrl.pathname === "/api/snapshot" ||
+    requestUrl.pathname === "/api/live"
+  );
 
-      if (requestUrl.pathname === "/api/snapshot") {
-        writeJson(response, 200, {
-          snapshot: monitorSnapshot,
-          monitor: getMonitorInfo(),
-        });
-        return;
-      }
+  if (needsRemoteAuth && !isAuthorizedRemoteRequest(requestUrl, isLoopbackRequest)) {
+    response.writeHead(401, { "Content-Type": "text/plain; charset=utf-8" });
+    response.end("Phone monitor token required");
+    return;
+  }
 
-      if (requestUrl.pathname === "/api/live") {
-        response.writeHead(200, {
-          "Content-Type": "text/event-stream; charset=utf-8",
-          "Cache-Control": "no-store",
-          Connection: "keep-alive",
-        });
-        response.write("retry: 2000\n\n");
-        monitorClients.add(response);
-        response.write(`event: snapshot\ndata: ${JSON.stringify({
-          snapshot: monitorSnapshot,
-          monitor: getMonitorInfo(),
-        })}\n\n`);
-
-        request.on("close", () => {
-          monitorClients.delete(response);
-        });
-        return;
-      }
-
-      const filePath = resolveAssetPath(
-        requestUrl.pathname,
-        isLoopbackRequest ? "dashboard.html" : "phone.html"
-      );
-      if (!filePath) {
-        response.writeHead(403).end("Forbidden");
-        return;
-      }
-
-      const relativeAssetPath = path.relative(projectRoot, filePath).replace(/\\/g, "/");
-      if (!isLoopbackRequest && !remoteMonitorAssets.has(relativeAssetPath)) {
-        response.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
-        response.end("Forbidden");
-        return;
-      }
-
-      fs.readFile(filePath, (error, content) => {
-        if (error) {
-          const status = error.code === "ENOENT" ? 404 : 500;
-          response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
-          response.end(status === 404 ? "Not found" : "Internal server error");
-          return;
-        }
-
-        const ext = path.extname(filePath).toLowerCase();
-        response.writeHead(200, {
-          "Content-Type": mimeTypes[ext] || "application/octet-stream",
-          "Cache-Control": "no-store",
-        });
-        response.end(content);
-      });
+  if (requestUrl.pathname === "/api/snapshot") {
+    writeJson(response, 200, {
+      snapshot: monitorSnapshot,
+      monitor: getMonitorInfo(),
     });
+    return;
+  }
 
-    server.once("error", reject);
-    server.listen(0, "0.0.0.0", () => {
-      staticServer = server;
-      const address = server.address();
-      staticPort = address.port;
-      localOrigin = `http://127.0.0.1:${staticPort}`;
-      resolve(localOrigin);
+  if (requestUrl.pathname === "/api/live") {
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store",
+      Connection: "keep-alive",
     });
+    response.write("retry: 2000\n\n");
+    monitorClients.add(response);
+    response.write(`event: snapshot\ndata: ${JSON.stringify({
+      snapshot: monitorSnapshot,
+      monitor: getMonitorInfo(),
+    })}\n\n`);
+
+    request.on("close", () => {
+      monitorClients.delete(response);
+    });
+    return;
+  }
+
+  const filePath = resolveAssetPath(
+    requestUrl.pathname,
+    isLoopbackRequest ? "dashboard.html" : "phone.html"
+  );
+  if (!filePath) {
+    response.writeHead(403).end("Forbidden");
+    return;
+  }
+
+  const relativeAssetPath = path.relative(projectRoot, filePath).replace(/\\/g, "/");
+  if (!isLoopbackRequest && !remoteMonitorAssets.has(relativeAssetPath)) {
+    response.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+    response.end("Forbidden");
+    return;
+  }
+
+  fs.readFile(filePath, (error, content) => {
+    if (error) {
+      const status = error.code === "ENOENT" ? 404 : 500;
+      response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
+      response.end(status === 404 ? "Not found" : "Internal server error");
+      return;
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    response.writeHead(200, {
+      "Content-Type": mimeTypes[ext] || "application/octet-stream",
+      "Cache-Control": "no-store",
+    });
+    response.end(content);
   });
+}
+
+function listenStaticServer(port) {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(handleStaticRequest);
+    server.once("error", reject);
+    server.listen(port, "0.0.0.0", () => resolve(server));
+  });
+}
+
+async function createStaticServer() {
+  try {
+    staticServer = await listenStaticServer(preferredMonitorPort);
+    monitorUsesFallbackPort = false;
+  } catch (error) {
+    if (error?.code !== "EADDRINUSE") {
+      throw error;
+    }
+
+    staticServer = await listenStaticServer(0);
+    monitorUsesFallbackPort = true;
+  }
+
+  const address = staticServer.address();
+  staticPort = typeof address === "object" && address ? address.port : preferredMonitorPort;
+  localOrigin = `http://127.0.0.1:${staticPort}`;
+  return localOrigin;
 }
 
 function emitToRenderer(channel, payload) {
@@ -296,6 +373,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  remoteMonitorToken = loadOrCreateMonitorToken();
   await createStaticServer();
   createWindow();
 
@@ -331,16 +409,21 @@ ipcMain.handle("serial:list", async () => {
   }));
 });
 
-ipcMain.handle("serial:connect", async (_, portPath) => {
+ipcMain.handle("serial:connect", async (_, portPath, baudRate) => {
   if (!portPath) {
     throw new Error("No COM port selected");
+  }
+
+  const selectedBaudRate = Number(baudRate);
+  if (!Number.isFinite(selectedBaudRate) || selectedBaudRate <= 0) {
+    throw new Error("Invalid baud rate");
   }
 
   await closeActiveSerialPort();
 
   const port = new SerialPort({
     path: portPath,
-    baudRate: 115200,
+    baudRate: selectedBaudRate,
     autoOpen: false,
   });
 
@@ -352,7 +435,12 @@ ipcMain.handle("serial:connect", async (_, portPath) => {
   });
 
   port.on("data", (chunk) => {
-    emitToRenderer("serial:data", Buffer.from(chunk).toString("utf8"));
+    const buffer = Buffer.from(chunk);
+    emitToRenderer("serial:data", {
+      text: buffer.toString("latin1"),
+      byteLength: buffer.length,
+      bytes: Array.from(buffer),
+    });
   });
 
   port.on("error", (error) => {
@@ -367,7 +455,7 @@ ipcMain.handle("serial:connect", async (_, portPath) => {
   });
 
   activeSerialPort = port;
-  return { path: portPath, baudRate: 115200 };
+  return { path: portPath, baudRate: selectedBaudRate };
 });
 
 ipcMain.handle("serial:disconnect", async () => {
