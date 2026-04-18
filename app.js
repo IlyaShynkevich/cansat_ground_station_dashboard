@@ -34,6 +34,7 @@ const elements = {
   baudSelect: document.getElementById("baudSelect"),
   portSelect: document.getElementById("portSelect"),
   refreshPortsBtn: document.getElementById("refreshPortsBtn"),
+  loadDefaultSimBtn: document.getElementById("loadDefaultSimBtn"),
   linkPort: document.getElementById("linkPort"),
   linkBridge: document.getElementById("linkBridge"),
   phoneMonitorStatus: document.getElementById("phoneMonitorStatus"),
@@ -162,6 +163,8 @@ const defaultBaudRate = 115200;
 const simulationFallbackDelayMs = 1000;
 const simulationMinDelayMs = 150;
 const simulationMaxDelayMs = 2000;
+const defaultSimulationProfileName = "cansat_2023_simp.txt";
+const defaultSimulationProfilePath = "./docs/cansat_2023_simp.txt";
 const serialPreviewLimit = 8;
 const serialPreviewTextLimit = 140;
 const mapTrailLimit = 48;
@@ -186,7 +189,9 @@ function setPhoneMonitorState(status, url = "", hint = "") {
 }
 
 function toNumber(value) {
-  const n = Number(String(value ?? "").trim());
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const n = Number(text);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -492,11 +497,49 @@ function buildSimulationRowFromColumns(headers, cols, rowIndex) {
   return row;
 }
 
-function buildSimulationRowFromPressure(pressure, rowIndex) {
+function buildSimulationRowFromPressure(pressure, rowIndex, options = {}) {
   const row = buildSimulationRowFromColumns(["PRESSURE"], [String(pressure)], rowIndex);
+  const referencePressureKpa = normalizePressure(options.referencePressure ?? pressure);
+  const pressureKpa = normalizePressure(pressure);
+  const altitude = altitudeFromPressure(pressureKpa, referencePressureKpa, 0);
   row.MODE = "S";
   row.STATE = "SIMULATION";
+  if (altitude != null) {
+    row.ALTITUDE = altitude.toFixed(1);
+  }
   return row;
+}
+
+function stripSimulationProfileComment(line) {
+  const commentIndex = line.indexOf("#");
+  return commentIndex >= 0 ? line.slice(0, commentIndex) : line;
+}
+
+function parseSimulationSimpProfile(text) {
+  const rows = [];
+  let referencePressure = null;
+
+  text.split(/\r?\n/).forEach((rawLine) => {
+    const line = stripSimulationProfileComment(rawLine).trim();
+    if (!line) return;
+
+    const match = line.match(/^CMD\s*,\s*([^,]+)\s*,\s*SIMP\s*,\s*(\d+)\s*$/i);
+    if (!match) return;
+
+    const rawTeamId = match[1].trim();
+    const pressure = Math.round(Number(match[2]));
+    if (!Number.isFinite(pressure)) return;
+    if (referencePressure == null) referencePressure = pressure;
+
+    const teamId = rawTeamId === "$" ? getCommandTeamId() : rawTeamId;
+    const row = buildSimulationRowFromPressure(pressure, rows.length, { referencePressure });
+    row.TEAM_ID = teamId;
+    row.CMD_ECHO = `CMD,${teamId},SIMP,${pressure}`;
+    row.CMD_ARG = String(pressure);
+    rows.push(row);
+  });
+
+  return rows;
 }
 
 function buildSimulationPlaybackRows(rows) {
@@ -639,7 +682,7 @@ function queueSimulationStep() {
 
 function armSimulationProfile() {
   if (!simulationRows.length) {
-    setCommandFeedback("SIM ENABLE", "Load Simulation CSV first");
+    setCommandFeedback("SIM ENABLE", "Load a simulation profile first");
     return;
   }
 
@@ -654,7 +697,7 @@ function armSimulationProfile() {
 
 function activateSimulationProfile() {
   if (!simulationRows.length) {
-    setCommandFeedback("SIM ACTIVATE", "Load Simulation CSV first");
+    setCommandFeedback("SIM ACTIVATE", "Load a simulation profile first");
     return;
   }
 
@@ -750,9 +793,10 @@ function updateLinkPrep() {
 }
 
 function computePacketStats(row) {
+  const visibleRows = getVisibleDataRows();
   const packet = toNumber(row?.PACKET_COUNT);
-  const received = data.length;
-  const firstPacket = toNumber(data[0]?.PACKET_COUNT);
+  const received = visibleRows.length;
+  const firstPacket = toNumber(visibleRows[0]?.PACKET_COUNT);
   const lost = packet != null && firstPacket != null
     ? Math.max(0, packet - firstPacket + 1 - received)
     : 0;
@@ -996,6 +1040,12 @@ function rowAt(i) {
   return data[Math.max(0, Math.min(i, data.length - 1))];
 }
 
+function getVisibleDataRows() {
+  if (!data.length) return [];
+  const visibleCount = Math.max(1, Math.min(index + 1, data.length));
+  return data.slice(0, visibleCount);
+}
+
 function updateQuickChecks(row) {
   setDot(elements.checkLink, serialPort ? "dot--ok" : "dot--bad");
   setDot(elements.checkLog, data.length > 0 ? "dot--ok" : "dot--warn");
@@ -1004,11 +1054,12 @@ function updateQuickChecks(row) {
 }
 
 function findGpsTrailPoints(limit = mapTrailLimit) {
+  const visibleRows = getVisibleDataRows();
   const points = [];
   let previousKey = "";
 
-  for (let i = data.length - 1; i >= 0; i -= 1) {
-    const row = data[i];
+  for (let i = visibleRows.length - 1; i >= 0; i -= 1) {
+    const row = visibleRows[i];
     const lat = toNumber(row?.GPS_LATITUDE);
     const lon = toNumber(row?.GPS_LONGITUDE);
     if (lat == null || lon == null) continue;
@@ -1216,16 +1267,13 @@ function updateUi() {
     return;
   }
 
-  const packet = toNumber(row.PACKET_COUNT) ?? index + 1;
-  const received = data.length;
-  const firstPacket = toNumber(data[0]?.PACKET_COUNT) ?? packet;
-  const lost = Math.max(0, packet - firstPacket + 1 - received);
+  const stats = computePacketStats(row);
 
   elements.missionTime.textContent = row.MISSION_TIME || "--";
   elements.modeBadge.textContent = (row.MODE || "--").trim();
   elements.stateBadge.textContent = (row.STATE || "--").trim();
-  elements.packetsReceived.textContent = String(received);
-  elements.packetsLost.textContent = String(lost);
+  elements.packetsReceived.textContent = String(stats.received);
+  elements.packetsLost.textContent = String(stats.lost);
   elements.gpsSats.textContent = row.GPS_SATS || "--";
 
   const alt = toNumber(row.ALTITUDE);
@@ -1266,8 +1314,9 @@ function updateUi() {
   updateQuickChecks(row);
   renderFullTelemetry(row);
 
-  const start = Math.max(0, data.length - tailSize);
-  const windowRows = data.slice(start);
+  const visibleRows = getVisibleDataRows();
+  const start = Math.max(0, visibleRows.length - tailSize);
+  const windowRows = visibleRows.slice(start);
   renderSeries(plots.alt, [{
     points: windowRows.map((r) => ({ x: toNumber(r._SEQ) ?? 0, y: toNumber(r.ALTITUDE) ?? 0 })),
     color: "#0f6a9e",
@@ -1817,12 +1866,60 @@ function parseSimulationCsv(text) {
 
   const pressureIndex = headers.findIndex((name) => name === "PRESSURE");
   const pressureColumnIndex = pressureIndex >= 0 ? pressureIndex : 0;
-
-  return lines.slice(1)
+  const pressureRows = lines.slice(1)
     .map((line) => parseCsvLine(line))
     .map((cols, rowIndex) => ({ pressure: toNumber(cols[pressureColumnIndex]), rowIndex }))
-    .filter((entry) => entry.pressure != null)
-    .map((entry) => buildSimulationRowFromPressure(entry.pressure, entry.rowIndex));
+    .filter((entry) => entry.pressure != null);
+  const referencePressure = pressureRows[0]?.pressure ?? null;
+
+  return pressureRows
+    .map((entry) => buildSimulationRowFromPressure(entry.pressure, entry.rowIndex, { referencePressure }));
+}
+
+function parseSimulationProfile(text) {
+  const simpRows = parseSimulationSimpProfile(text);
+  if (simpRows.length > 0) return simpRows;
+  return parseSimulationCsv(text);
+}
+
+function applySimulationProfile(rows, profileName) {
+  stopSimulationPlayback();
+  simulationRows = rows;
+  simulationFileName = profileName;
+  simulationArmed = false;
+  updateQuickChecks(rowAt(index) || {});
+  elements.sourceLabel.textContent = simulationRows.length > 0
+    ? `Source: SIM profile ${profileName}`
+    : "Source: SIM profile invalid";
+  elements.cmdEcho.textContent = simulationRows.length > 0
+    ? `${simulationRows.length} simulation rows loaded. Run SIM ENABLE.`
+    : `Could not parse ${profileName}`;
+  publishMonitorSnapshot();
+}
+
+async function loadBundledSimulationProfile() {
+  try {
+    elements.cmdEcho.textContent = "Loading CanSat test profile...";
+    publishMonitorSnapshot();
+
+    const response = await fetch(defaultSimulationProfilePath, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}`);
+    }
+
+    const text = await response.text();
+    applySimulationProfile(parseSimulationProfile(text), defaultSimulationProfileName);
+  } catch (error) {
+    console.error(error);
+    stopSimulationPlayback();
+    simulationRows = [];
+    simulationFileName = defaultSimulationProfileName;
+    simulationArmed = false;
+    updateQuickChecks(rowAt(index) || {});
+    elements.sourceLabel.textContent = "Source: CanSat test profile failed";
+    elements.cmdEcho.textContent = "Could not load the built-in CanSat test profile";
+    publishMonitorSnapshot();
+  }
 }
 
 elements.connectBtn.addEventListener("click", connectSerial);
@@ -1834,6 +1931,11 @@ elements.baudSelect.addEventListener("change", () => {
 elements.refreshPortsBtn.addEventListener("click", refreshPorts);
 elements.portSelect.addEventListener("change", updateLinkPrep);
 elements.exportLogBtn.addEventListener("click", exportTelemetryLog);
+elements.loadDefaultSimBtn?.addEventListener("click", () => {
+  loadBundledSimulationProfile().catch((error) => {
+    console.error(error);
+  });
+});
 elements.simPressureBtn?.addEventListener("click", handleManualSimulationPressure);
 elements.simPressureInput?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
@@ -1844,18 +1946,8 @@ elements.simCsvInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
   const text = await file.text();
-  stopSimulationPlayback();
-  simulationRows = parseSimulationCsv(text);
-  simulationFileName = file.name;
-  simulationArmed = false;
-  updateQuickChecks(rowAt(index) || {});
-  elements.sourceLabel.textContent = simulationRows.length > 0
-    ? `Source: SIM CSV ${file.name}`
-    : "Source: SIM CSV invalid";
-  elements.cmdEcho.textContent = simulationRows.length > 0
-    ? `${simulationRows.length} simulation rows loaded. Run SIM ENABLE.`
-    : "Simulation CSV invalid";
-  publishMonitorSnapshot();
+  applySimulationProfile(parseSimulationProfile(text), file.name);
+  event.target.value = "";
 });
 
 document.querySelectorAll("[data-cmd]").forEach((btn) => {

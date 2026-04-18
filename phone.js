@@ -79,7 +79,9 @@ function toneClass(status) {
 }
 
 function toNumber(value) {
-  const n = Number(String(value ?? "").trim());
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const n = Number(text);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -176,7 +178,7 @@ function getSnapshotState(snapshot) {
   const hasData = Boolean(snapshot?.hasData);
   const sourceLabel = String(snapshot?.sourceLabel || "");
   const isSimPlayback = /^Source:\s*SIM playback\b/i.test(sourceLabel);
-  const isSimReady = /^Source:\s*SIM (ready|CSV)\b/i.test(sourceLabel);
+  const isSimReady = /^Source:\s*SIM (ready|CSV|profile)\b/i.test(sourceLabel);
   const isSimulation = snapshot?.quickChecks?.simulationMode === "ok";
 
   if (isLive) {
@@ -318,7 +320,11 @@ function updatePlotHistory(snapshot) {
   }
 
   if (!snapshot?.hasData || packet == null) return;
-  if (lastHistoryPacket != null && packet <= lastHistoryPacket) return;
+  if (lastHistoryPacket != null && packet < lastHistoryPacket) {
+    resetPlotHistory();
+  } else if (lastHistoryPacket != null && packet === lastHistoryPacket) {
+    return;
+  }
   lastHistoryPacket = packet;
 
   plotDefinitions.forEach(({ key }) => {

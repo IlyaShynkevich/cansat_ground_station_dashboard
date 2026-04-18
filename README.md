@@ -6,7 +6,7 @@ Desktop ground station app for telemetry monitoring.
 
 - Displays mission status and key telemetry values.
 - Connects to a serial telemetry source from the desktop app, including USB serial bridges such as a Waveshare-mounted Digi XBee link.
-- Loads simulation CSV profiles, including exported telemetry logs, for local playback.
+- Loads simulation profiles from CSV logs or the bundled CanSat SIMP test file for local playback.
 - Exports captured telemetry to CSV.
 - Exposes a lightweight phone monitor page over the local network for live telemetry viewing.
 - Shows rolling plots for altitude, voltage, and IMU channels.
@@ -18,7 +18,7 @@ Desktop ground station app for telemetry monitoring.
 
 1. Install dependencies with `npm install`.
 2. Start the desktop app with `npm start`.
-3. Use **Connect Link** for live telemetry, or load a profile with **Simulation CSV** and then run **SIM ENABLE** plus **SIM ACTIVATE** to replay it locally.
+3. Use **Connect Link** for live telemetry, or load a profile with **Load CanSat Test** or **Simulation File** and then run **SIM ENABLE** plus **SIM ACTIVATE** to replay it locally.
 4. Open the **Phone Monitor** URL shown in the desktop app on a phone connected to the same Wi-Fi or hotspot.
 
 ## Tech stack

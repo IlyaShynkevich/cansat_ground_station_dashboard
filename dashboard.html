@@ -21,8 +21,9 @@
       <div class="subtitle">Serial / XBee Telemetry + Live Monitoring Application</div>
     </div>
     <div class="topbar__right">
-      <label class="file-btn" for="simCsvInput">Simulation CSV</label>
-      <input id="simCsvInput" type="file" accept=".csv,text/csv" hidden />
+      <label class="file-btn" for="simCsvInput">Simulation File</label>
+      <input id="simCsvInput" type="file" accept=".csv,.txt,text/csv,text/plain" hidden />
+      <button class="btn btn--ghost btn--compact" type="button" id="loadDefaultSimBtn">Load CanSat Test</button>
       <button class="btn btn--ghost btn--compact" type="button" id="exportLogBtn">Export Log</button>
       <select id="baudSelect" class="select select--compact" aria-label="Serial baud rate">
         <option value="9600">9600 baud</option>
