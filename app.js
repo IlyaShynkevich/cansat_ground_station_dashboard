@@ -16,12 +16,15 @@ const elements = {
   accelVector: document.getElementById("accelVector"),
   gyroVector: document.getElementById("gyroVector"),
   mapFrame: document.getElementById("mapFrame"),
+  mapTrail: document.getElementById("mapTrail"),
   mapStatus: document.getElementById("mapStatus"),
   mapLink: document.getElementById("mapLink"),
   mapPointA: document.getElementById("mapPointA"),
   mapPointB: document.getElementById("mapPointB"),
   cmdSent: document.getElementById("cmdSent"),
   cmdEcho: document.getElementById("cmdEcho"),
+  simPressureInput: document.getElementById("simPressureInput"),
+  simPressureBtn: document.getElementById("simPressureBtn"),
   checkLink: document.getElementById("checkLink"),
   checkLog: document.getElementById("checkLog"),
   checkSim: document.getElementById("checkSim"),
@@ -161,6 +164,7 @@ const simulationMinDelayMs = 150;
 const simulationMaxDelayMs = 2000;
 const serialPreviewLimit = 8;
 const serialPreviewTextLimit = 140;
+const mapTrailLimit = 48;
 const serialApi = window.electronSerial || null;
 const monitorApi = window.electronMonitor || null;
 
@@ -369,6 +373,41 @@ function normalizePressure(value) {
   return pressure;
 }
 
+function parseSimulationPressureInput(value) {
+  const numeric = toNumber(value);
+  if (numeric == null || numeric <= 0) return null;
+  if (numeric >= 2000 && numeric <= 150000) {
+    return { pa: Math.round(numeric), kpa: numeric / 1000 };
+  }
+  if (numeric >= 10 && numeric <= 150) {
+    return { pa: Math.round(numeric * 1000), kpa: numeric };
+  }
+  return null;
+}
+
+function altitudeFromPressure(pressureKpa, referencePressureKpa = 101.325, referenceAltitude = 0) {
+  if (pressureKpa == null || referencePressureKpa == null || referencePressureKpa <= 0) return null;
+  const ratio = pressureKpa / referencePressureKpa;
+  if (!Number.isFinite(ratio) || ratio <= 0) return null;
+  return referenceAltitude + (44330 * (1 - Math.pow(ratio, 0.1903)));
+}
+
+function deriveSimulationState(referenceAltitude, nextAltitude) {
+  if (referenceAltitude == null || nextAltitude == null) return "SIMULATION";
+  const delta = nextAltitude - referenceAltitude;
+  if (delta > 8) return "SIM ASCENT";
+  if (delta < -8) return "SIM DESCENT";
+  return "SIM HOLD";
+}
+
+function getReferenceSimulationRow() {
+  for (let i = data.length - 1; i >= 0; i -= 1) {
+    const row = data[i];
+    if (normalizePressure(row?.PRESSURE) != null) return row;
+  }
+  return null;
+}
+
 function normalizeVoltage(value) {
   let voltage = toNumber(value);
   if (voltage == null) return null;
@@ -504,6 +543,55 @@ function buildSimulationPlaybackRows(rows) {
       GPS_LONGITUDE: (baseLon + lonOffset).toFixed(5),
     };
   });
+}
+
+function getNextMissionTimeValue() {
+  const latestRow = data[data.length - 1] || null;
+  const seconds = parseClockTime(latestRow?.MISSION_TIME);
+  if (seconds == null) return formatClockTime(data.length);
+  return formatClockTime(seconds + 1);
+}
+
+function buildLocalSimulationPressureRow(pressureInput) {
+  const latestRow = data[data.length - 1] || null;
+  const referenceRow = getReferenceSimulationRow() || latestRow;
+  const referencePressure = normalizePressure(referenceRow?.PRESSURE) ?? 101.325;
+  const referenceAltitude = toNumber(referenceRow?.ALTITUDE) ?? 0;
+  const nextAltitude = altitudeFromPressure(pressureInput.kpa, referencePressure, referenceAltitude);
+  const packetCount = (toNumber(latestRow?.PACKET_COUNT) ?? data.length) + 1;
+  const teamId = getCommandTeamId();
+  const row = Object.fromEntries(serialDefaultHeaders.map((key) => [key, latestRow?.[key] ?? ""]));
+  const commandEcho = `CMD,${teamId},SIMP,${pressureInput.pa}`;
+
+  row.TEAM_ID = teamId;
+  row.MISSION_TIME = getNextMissionTimeValue();
+  row.GPS_TIME = row.MISSION_TIME;
+  row.PACKET_COUNT = String(packetCount);
+  row.MODE = "S";
+  row.STATE = deriveSimulationState(referenceAltitude, nextAltitude);
+  row.PRESSURE = String(pressureInput.pa);
+  row.CMD_ECHO = commandEcho;
+  row.CMD_ARG = String(pressureInput.pa);
+
+  if (nextAltitude != null) {
+    row.ALTITUDE = nextAltitude.toFixed(1);
+    if (!row.GPS_ALTITUDE) row.GPS_ALTITUDE = row.ALTITUDE;
+  }
+
+  return row;
+}
+
+function applyLocalSimulationPressure(pressureInput) {
+  stopSimulationPlayback();
+  const row = buildLocalSimulationPressureRow(pressureInput);
+  row._SEQ = String(data.length);
+  data.push(row);
+  index = data.length - 1;
+  lastSentCommand = `SIMP ${pressureInput.pa}`;
+  elements.sourceLabel.textContent = "Source: SIM manual";
+  elements.cmdSent.textContent = lastSentCommand;
+  elements.cmdEcho.textContent = `Applied ${pressureInput.pa} Pa locally`;
+  updateUi();
 }
 
 function stopSimulationPlayback(keepArmed = false) {
@@ -681,11 +769,14 @@ function buildMonitorSnapshot() {
   const stats = computePacketStats(row);
   const lat = toNumber(row?.GPS_LATITUDE);
   const lon = toNumber(row?.GPS_LONGITUDE);
+  const mapState = buildMapState(lat, lon);
   const gpsFix = lat != null && lon != null;
   const gpsPoints = findRecentGpsPoints().map((point, pointIndex) => ({
     label: pointIndex === 0 ? "Point A" : "Point B",
     value: `${formatLatLon(point.lat, point.lon)} | ${point.time}`,
   }));
+  const displayLat = lat ?? mapState.pointB?.lat ?? null;
+  const displayLon = lon ?? mapState.pointB?.lon ?? null;
 
   return {
     updatedAt: new Date().toISOString(),
@@ -725,8 +816,13 @@ function buildMonitorSnapshot() {
       fix: gpsFix,
       latitude: lat,
       longitude: lon,
-      display: formatLatLon(lat, lon),
-      mapUrl: gpsFix ? `https://www.google.com/maps?q=${lat},${lon}` : "",
+      display: displayLat != null && displayLon != null
+        ? `${formatLatLon(displayLat, displayLon)}${gpsFix ? "" : " (last known)"}`
+        : "Waiting for GPS fix",
+      mapUrl: mapState.mapUrl,
+      embedUrl: mapState.embedUrl,
+      trailMarkup: mapState.trailMarkup,
+      status: mapState.status,
       points: gpsPoints,
     },
     commands: {
@@ -907,51 +1003,165 @@ function updateQuickChecks(row) {
   setDot(elements.checkBattery, normalizeVoltage(row.VOLTAGE) != null ? "dot--ok" : "dot--warn");
 }
 
-function findRecentGpsPoints() {
+function findGpsTrailPoints(limit = mapTrailLimit) {
   const points = [];
+  let previousKey = "";
+
   for (let i = data.length - 1; i >= 0; i -= 1) {
     const row = data[i];
     const lat = toNumber(row?.GPS_LATITUDE);
     const lon = toNumber(row?.GPS_LONGITUDE);
     if (lat == null || lon == null) continue;
+
+    const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+    if (key === previousKey) continue;
+    previousKey = key;
+
     points.push({ lat, lon, time: row.MISSION_TIME || "--" });
-    if (points.length === 2) break;
+    if (points.length >= limit) break;
   }
+
   return points.reverse();
 }
 
-function updateMap(lat, lon) {
-  const recentPoints = findRecentGpsPoints();
-  const pointA = recentPoints[0] || null;
-  const pointB = recentPoints[1] || recentPoints[0] || null;
+function findRecentGpsPoints() {
+  const trailPoints = findGpsTrailPoints(2);
+  return trailPoints.length ? trailPoints : [];
+}
 
-  if (lat != null && lon != null) {
-    const url = `https://www.google.com/maps?q=${lat},${lon}`;
-    const embedUrl = `${url}&z=16&output=embed`;
-    if (lastMapEmbedUrl !== embedUrl) {
-      elements.mapFrame.src = embedUrl;
-      lastMapEmbedUrl = embedUrl;
-    }
-    elements.mapStatus.textContent = "GPS lock active";
-    elements.mapLink.href = url;
-    elements.mapLink.textContent = "Open in Google Maps";
-    elements.gpsFixVal.textContent = "Locked";
-    elements.mapPointA.textContent = pointA
-      ? `${formatLatLon(pointA.lat, pointA.lon)} | ${pointA.time}`
-      : formatLatLon(lat, lon);
-    elements.mapPointB.textContent = pointB
-      ? `${formatLatLon(pointB.lat, pointB.lon)} | ${pointB.time}`
-      : "Waiting for next point";
-  } else {
-    elements.mapFrame.removeAttribute("src");
-    lastMapEmbedUrl = "";
-    elements.mapStatus.textContent = "Waiting for GPS fix";
-    elements.mapLink.removeAttribute("href");
-    elements.mapLink.textContent = "No map target";
-    elements.gpsFixVal.textContent = "No Fix";
-    elements.mapPointA.textContent = "Waiting for GPS fix";
-    elements.mapPointB.textContent = "Waiting for next point";
+function clampMapLatitude(lat) {
+  return Math.max(-85, Math.min(85, lat));
+}
+
+function mercatorY(lat) {
+  const radians = clampMapLatitude(lat) * (Math.PI / 180);
+  return Math.log(Math.tan((Math.PI / 4) + (radians / 2)));
+}
+
+function buildMapState(lat, lon) {
+  const trailPoints = findGpsTrailPoints();
+  const lastTrailPoint = trailPoints[trailPoints.length - 1] || null;
+  const focusPoint = lat != null && lon != null
+    ? { lat, lon, time: rowAt(index)?.MISSION_TIME || "--" }
+    : lastTrailPoint;
+
+  if (!focusPoint) {
+    return {
+      embedUrl: "",
+      mapUrl: "",
+      trailMarkup: "",
+      pointA: null,
+      pointB: null,
+      hasFix: false,
+      status: "Waiting for GPS fix",
+    };
   }
+
+  const points = trailPoints.length ? [...trailPoints] : [focusPoint];
+  const focusKey = `${focusPoint.lat.toFixed(5)},${focusPoint.lon.toFixed(5)}`;
+  if (!points.some((point) => `${point.lat.toFixed(5)},${point.lon.toFixed(5)}` === focusKey)) {
+    points.push(focusPoint);
+  }
+
+  const lats = points.map((point) => point.lat);
+  const lons = points.map((point) => point.lon);
+  let minLat = Math.min(...lats);
+  let maxLat = Math.max(...lats);
+  let minLon = Math.min(...lons);
+  let maxLon = Math.max(...lons);
+  const latSpan = Math.max(0.002, maxLat - minLat);
+  const lonSpan = Math.max(0.002, maxLon - minLon);
+  const latPad = latSpan * 0.35;
+  const lonPad = lonSpan * 0.35;
+  minLat = clampMapLatitude(minLat - latPad);
+  maxLat = clampMapLatitude(maxLat + latPad);
+  minLon -= lonPad;
+  maxLon += lonPad;
+
+  const bbox = [minLon, minLat, maxLon, maxLat]
+    .map((value) => value.toFixed(6))
+    .join(",");
+  const marker = `${focusPoint.lat.toFixed(6)},${focusPoint.lon.toFixed(6)}`;
+  const embedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${encodeURIComponent(marker)}`;
+  const mapUrl = `https://www.openstreetmap.org/?mlat=${focusPoint.lat.toFixed(6)}&mlon=${focusPoint.lon.toFixed(6)}#map=16/${focusPoint.lat.toFixed(6)}/${focusPoint.lon.toFixed(6)}`;
+
+  const minY = mercatorY(minLat);
+  const maxY = mercatorY(maxLat);
+  const projected = points.map((point) => {
+    const x = ((point.lon - minLon) / (maxLon - minLon || 1)) * 520;
+    const y = (1 - ((mercatorY(point.lat) - minY) / (maxY - minY || 1))) * 260;
+    return {
+      ...point,
+      x: Math.max(10, Math.min(510, x)),
+      y: Math.max(10, Math.min(250, y)),
+    };
+  });
+  const polylinePoints = projected.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+  const startPoint = projected[0];
+  const currentPoint = projected[projected.length - 1];
+  const recentPoints = points.slice(-2);
+  const pointA = recentPoints[0] || focusPoint;
+  const pointB = recentPoints[1] || pointA;
+  const status = lat != null && lon != null
+    ? (projected.length > 1 ? `GPS lock active | Trail ${projected.length} pts` : "GPS lock active")
+    : "GPS temporarily unavailable | Showing last route";
+
+  const trailMarkup = projected.length
+    ? `
+      <defs>
+        <linearGradient id="mapTrailGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#0f6a9e"></stop>
+          <stop offset="100%" stop-color="#d9480f"></stop>
+        </linearGradient>
+      </defs>
+      ${projected.length > 1 ? `<polyline points="${polylinePoints}" fill="none" stroke="url(#mapTrailGradient)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"></polyline>` : ""}
+      <circle cx="${startPoint.x.toFixed(1)}" cy="${startPoint.y.toFixed(1)}" r="6" fill="#ffffff" stroke="#0f6a9e" stroke-width="3"></circle>
+      <circle cx="${currentPoint.x.toFixed(1)}" cy="${currentPoint.y.toFixed(1)}" r="8" fill="#d9480f" stroke="#ffffff" stroke-width="3"></circle>
+    `
+    : "";
+
+  return {
+    embedUrl,
+    mapUrl,
+    trailMarkup,
+    pointA,
+    pointB,
+    hasFix: lat != null && lon != null,
+    status,
+  };
+}
+
+function updateMap(lat, lon) {
+  const mapState = buildMapState(lat, lon);
+
+  if (mapState.embedUrl) {
+    if (lastMapEmbedUrl !== mapState.embedUrl) {
+      elements.mapFrame.src = mapState.embedUrl;
+      lastMapEmbedUrl = mapState.embedUrl;
+    }
+    elements.mapTrail.innerHTML = mapState.trailMarkup;
+    elements.mapStatus.textContent = mapState.status;
+    elements.mapLink.href = mapState.mapUrl;
+    elements.mapLink.textContent = "Open full map";
+    elements.gpsFixVal.textContent = mapState.hasFix ? "Locked" : "No Fix";
+    elements.mapPointA.textContent = mapState.pointA
+      ? `${formatLatLon(mapState.pointA.lat, mapState.pointA.lon)} | ${mapState.pointA.time}`
+      : "Waiting for GPS fix";
+    elements.mapPointB.textContent = mapState.pointB
+      ? `${formatLatLon(mapState.pointB.lat, mapState.pointB.lon)} | ${mapState.pointB.time}`
+      : "Waiting for next point";
+    return;
+  }
+
+  elements.mapFrame.removeAttribute("src");
+  elements.mapTrail.innerHTML = "";
+  lastMapEmbedUrl = "";
+  elements.mapStatus.textContent = "Waiting for GPS fix";
+  elements.mapLink.removeAttribute("href");
+  elements.mapLink.textContent = "No map target";
+  elements.gpsFixVal.textContent = "No Fix";
+  elements.mapPointA.textContent = "Waiting for GPS fix";
+  elements.mapPointB.textContent = "Waiting for next point";
 }
 
 function clearUi() {
@@ -1282,6 +1492,7 @@ function getCommandTeamId() {
 function buildOutboundCommand(cmd) {
   const normalized = outboundCommandMap[cmd] || cmd;
   const teamId = getCommandTeamId();
+  const simPressureMatch = String(normalized).trim().match(/^SIMP\s+(\d+)$/i);
 
   if (normalized === "CX ON") {
     return { display: cmd, payload: `CMD,${teamId},CX,ON\r` };
@@ -1291,6 +1502,19 @@ function buildOutboundCommand(cmd) {
   }
   if (normalized === "CAL") {
     return { display: cmd, payload: `CMD,${teamId},CAL\r` };
+  }
+  if (normalized === "SIM ENABLE") {
+    return { display: cmd, payload: `CMD,${teamId},SIM,ENABLE\r` };
+  }
+  if (normalized === "SIM ACTIVATE") {
+    return { display: cmd, payload: `CMD,${teamId},SIM,ACTIVATE\r` };
+  }
+  if (normalized === "SIM DISABLE") {
+    return { display: cmd, payload: `CMD,${teamId},SIM,DISABLE\r` };
+  }
+  if (simPressureMatch) {
+    const pressure = simPressureMatch[1];
+    return { display: `SIMP ${pressure}`, payload: `CMD,${teamId},SIMP,${pressure}\r` };
   }
 
   return { display: cmd, payload: `${normalized}\r` };
@@ -1542,6 +1766,22 @@ function handleDashboardCommand(cmd) {
   sendCommand(cmd);
 }
 
+function handleManualSimulationPressure() {
+  const pressureInput = parseSimulationPressureInput(elements.simPressureInput?.value);
+  if (!pressureInput) {
+    setCommandFeedback("SIMP", "Enter a pressure between 1000-150000 Pa or 10-150 kPa");
+    elements.simPressureInput?.focus();
+    return;
+  }
+
+  if (serialPort) {
+    sendCommand(`SIMP ${pressureInput.pa}`);
+    return;
+  }
+
+  applyLocalSimulationPressure(pressureInput);
+}
+
 function exportTelemetryLog() {
   const headers = serialDefaultHeaders;
   const lines = [headers.join(",")];
@@ -1594,6 +1834,12 @@ elements.baudSelect.addEventListener("change", () => {
 elements.refreshPortsBtn.addEventListener("click", refreshPorts);
 elements.portSelect.addEventListener("change", updateLinkPrep);
 elements.exportLogBtn.addEventListener("click", exportTelemetryLog);
+elements.simPressureBtn?.addEventListener("click", handleManualSimulationPressure);
+elements.simPressureInput?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  handleManualSimulationPressure();
+});
 elements.simCsvInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;

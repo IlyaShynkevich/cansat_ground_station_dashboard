@@ -103,6 +103,17 @@
             <button class="btn" type="button" data-cmd="SIM ENABLE">SIM ENABLE</button>
             <button class="btn" type="button" data-cmd="SIM ACTIVATE">SIM ACTIVATE</button>
           </div>
+          <div class="sim-manual">
+            <div class="sim-manual__title">Manual SIM Pressure</div>
+            <div class="sim-manual__hint">Enter `SIMP,&lt;PRESSURE&gt;` in pascals. With hardware connected it sends the real command; locally it applies a simulated sample.</div>
+            <div class="sim-manual__controls">
+              <label class="sim-manual__field" for="simPressureInput">
+                <span class="sim-manual__label">Pressure (Pa)</span>
+                <input id="simPressureInput" class="input" type="number" min="1000" max="150000" step="1" placeholder="100001" />
+              </label>
+              <button class="btn" type="button" id="simPressureBtn">Apply SIMP</button>
+            </div>
+          </div>
           <div class="cmd-echo">
             <div class="cmd-echo__row">
               <div class="cmd-echo__k">Last Sent</div>
@@ -184,13 +195,22 @@
           <div class="divider"></div>
           <h3 class="panel__subtitle">Location Mini Map</h3>
           <div class="map-card">
-            <iframe
-              id="mapFrame"
-              class="map-frame"
-              title="GPS location mini map"
-              loading="lazy"
-              referrerpolicy="no-referrer-when-downgrade"
-            ></iframe>
+            <div class="map-stage">
+              <iframe
+                id="mapFrame"
+                class="map-frame"
+                title="GPS location mini map"
+                loading="lazy"
+                referrerpolicy="no-referrer-when-downgrade"
+              ></iframe>
+              <svg
+                id="mapTrail"
+                class="map-trail"
+                viewBox="0 0 520 260"
+                role="img"
+                aria-label="Rocket route trail"
+              ></svg>
+            </div>
             <div id="mapStatus">Waiting for GPS fix</div>
             <a id="mapLink" target="_blank" rel="noopener noreferrer">Open in map</a>
             <div class="map-points" aria-label="Map point summary">

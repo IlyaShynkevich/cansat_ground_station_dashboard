@@ -16,6 +16,7 @@ const elements = {
   linkPort: document.getElementById("linkPort"),
   linkBridge: document.getElementById("linkBridge"),
   mapFrame: document.getElementById("mapFrame"),
+  mapTrail: document.getElementById("mapTrail"),
   mapStatus: document.getElementById("mapStatus"),
   gpsDisplay: document.getElementById("gpsDisplay"),
   mapLink: document.getElementById("mapLink"),
@@ -250,15 +251,17 @@ function renderGps(snapshot) {
   const gps = snapshot?.gps || {};
   elements.gpsDisplay.textContent = gps.display || "Waiting for GPS fix";
 
-  if (gps.mapUrl) {
-    elements.mapStatus.textContent = gps.fix ? "GPS lock active" : "Waiting for GPS fix";
-    elements.mapFrame.src = `${gps.mapUrl}&z=16&output=embed`;
-    elements.mapLink.textContent = "Open in Google Maps";
+  if (gps.embedUrl) {
+    elements.mapStatus.textContent = gps.status || (gps.fix ? "GPS lock active" : "Waiting for GPS fix");
+    elements.mapFrame.src = gps.embedUrl;
+    elements.mapTrail.innerHTML = gps.trailMarkup || "";
+    elements.mapLink.textContent = "Open full map";
     elements.mapLink.href = gps.mapUrl;
     elements.mapLink.removeAttribute("aria-disabled");
   } else {
     elements.mapStatus.textContent = "Waiting for GPS fix";
     elements.mapFrame.removeAttribute("src");
+    elements.mapTrail.innerHTML = "";
     elements.mapLink.textContent = "Waiting for GPS fix";
     elements.mapLink.removeAttribute("href");
     elements.mapLink.setAttribute("aria-disabled", "true");
