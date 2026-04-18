@@ -176,7 +176,7 @@ function getSnapshotState(snapshot) {
   const sourceLabel = String(snapshot?.sourceLabel || "");
   const isSimPlayback = /^Source:\s*SIM playback\b/i.test(sourceLabel);
   const isSimReady = /^Source:\s*SIM (ready|CSV)\b/i.test(sourceLabel);
-  const isSimulation = snapshot?.quickChecks?.simulationMode === "warn";
+  const isSimulation = snapshot?.quickChecks?.simulationMode === "ok";
 
   if (isLive) {
     return {

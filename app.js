@@ -415,6 +415,18 @@ function isSimulationModeOn() {
   return simulationArmed || simulationActive;
 }
 
+function isSimulationTelemetryRow(row) {
+  const mode = String(row?.MODE || "").trim().toUpperCase();
+  if (mode.startsWith("S")) return true;
+
+  const state = String(row?.STATE || "").trim().toUpperCase();
+  return state.includes("SIM");
+}
+
+function getSimulationQuickCheckStatus(row) {
+  return isSimulationModeOn() || isSimulationTelemetryRow(row) ? "ok" : "bad";
+}
+
 function setCommandFeedback(cmd, message) {
   lastSentCommand = cmd;
   elements.cmdSent.textContent = cmd;
@@ -697,7 +709,7 @@ function buildMonitorSnapshot() {
     quickChecks: {
       telemetryLink: serialPort ? "ok" : "bad",
       loggingReady: data.length > 0 ? "ok" : "warn",
-      simulationMode: isSimulationModeOn() || row?.MODE?.toUpperCase().includes("S") ? "warn" : "ok",
+      simulationMode: getSimulationQuickCheckStatus(row),
       batteryOk: normalizeVoltage(row?.VOLTAGE) != null ? "ok" : "warn",
     },
     metrics: {
@@ -891,7 +903,7 @@ function rowAt(i) {
 function updateQuickChecks(row) {
   setDot(elements.checkLink, serialPort ? "dot--ok" : "dot--bad");
   setDot(elements.checkLog, data.length > 0 ? "dot--ok" : "dot--warn");
-  setDot(elements.checkSim, isSimulationModeOn() || row.MODE?.toUpperCase().includes("S") ? "dot--warn" : "dot--ok");
+  setDot(elements.checkSim, getSimulationQuickCheckStatus(row) === "ok" ? "dot--ok" : "dot--bad");
   setDot(elements.checkBattery, normalizeVoltage(row.VOLTAGE) != null ? "dot--ok" : "dot--warn");
 }
 
