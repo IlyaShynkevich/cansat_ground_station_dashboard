@@ -80,6 +80,13 @@ body {
   overflow: hidden;
 }
 
+.panel--aside {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: auto;
+}
+
 .panel__title {
   margin: 0 0 3px;
   font-size: 16px;
@@ -253,6 +260,18 @@ body {
   background: linear-gradient(180deg, #f9fbfd 0%, #eef4f8 100%);
 }
 
+.phone-monitor--dock {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.phone-monitor__main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
 .phone-monitor__status {
   font-size: 11px;
   font-weight: 900;
@@ -306,6 +325,52 @@ body {
   font-size: 10px;
   font-weight: 700;
   line-height: 1.2;
+}
+
+.phone-monitor__qr {
+  width: 112px;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+}
+
+.phone-monitor__qr-code {
+  width: 112px;
+  height: 112px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 6px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, #ffffff 0%, #eef4f8 100%);
+  color: var(--muted);
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.phone-monitor__qr-code[data-state="ready"] {
+  background: #fff;
+  color: #000;
+  letter-spacing: normal;
+}
+
+.phone-monitor__qr-code[data-state="error"] {
+  color: var(--bad);
+}
+
+.phone-monitor__qr-code svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.phone-monitor__qr-label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
 }
 
 .serial-debug {
@@ -522,4 +587,6 @@ body {
   .plots { grid-template-columns: 1fr; grid-auto-rows: 185px; flex: 0 0 auto; }
   .telemetry-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .imu-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .phone-monitor--dock { grid-template-columns: 1fr; }
+  .phone-monitor__qr { width: 100%; justify-items: start; }
 }

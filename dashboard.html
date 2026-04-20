@@ -72,30 +72,6 @@
           </ul>
 
           <div class="divider"></div>
-          <h3 class="panel__subtitle">Phone Monitor</h3>
-          <div class="phone-monitor">
-            <div class="phone-monitor__status" id="phoneMonitorStatus">Preparing phone</div>
-            <div class="phone-monitor__meta">
-              <div class="phone-monitor__meta-row">
-                <div class="phone-monitor__meta-k">Port</div>
-                <div class="phone-monitor__meta-v" id="linkPort">Not selected</div>
-              </div>
-              <div class="phone-monitor__meta-row">
-                <div class="phone-monitor__meta-k">Bridge</div>
-                <div class="phone-monitor__meta-v" id="linkBridge">Scanning COM ports</div>
-              </div>
-            </div>
-            <a
-              class="phone-monitor__link"
-              id="phoneMonitorUrl"
-              href="#"
-              target="_blank"
-              rel="noopener noreferrer"
-            >Waiting for phone URL</a>
-            <div class="phone-monitor__hint" id="phoneMonitorHint">Same Wi-Fi or hotspot.</div>
-          </div>
-
-          <div class="divider"></div>
           <h3 class="panel__subtitle">Command Panel</h3>
           <div class="cmd">
             <button class="btn" type="button" data-cmd="CAL">CAL (Zero Alt)</button>
@@ -174,7 +150,7 @@
           <div id="fullTelemetry" class="telemetry-grid" aria-label="Full telemetry fields"></div>
         </section>
 
-        <section class="panel" aria-label="IMU graphs and map">
+        <section class="panel panel--aside" aria-label="IMU graphs and map">
           <h2 class="panel__title">IMU 3D Graphs</h2>
           <div class="imu-grid">
             <div class="imu-card">
@@ -223,6 +199,36 @@
                 <div class="map-point__label">Point B</div>
                 <div class="map-point__value" id="mapPointB">Waiting for next point</div>
               </div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+          <h3 class="panel__subtitle">Phone Monitor</h3>
+          <div class="phone-monitor phone-monitor--dock">
+            <div class="phone-monitor__main">
+              <div class="phone-monitor__status" id="phoneMonitorStatus">Preparing phone</div>
+              <div class="phone-monitor__meta">
+                <div class="phone-monitor__meta-row">
+                  <div class="phone-monitor__meta-k">Port</div>
+                  <div class="phone-monitor__meta-v" id="linkPort">Not selected</div>
+                </div>
+                <div class="phone-monitor__meta-row">
+                  <div class="phone-monitor__meta-k">Bridge</div>
+                  <div class="phone-monitor__meta-v" id="linkBridge">Scanning COM ports</div>
+                </div>
+              </div>
+              <a
+                class="phone-monitor__link"
+                id="phoneMonitorUrl"
+                href="#"
+                target="_blank"
+                rel="noopener noreferrer"
+              >Waiting for phone URL</a>
+              <div class="phone-monitor__hint" id="phoneMonitorHint">Same Wi-Fi or hotspot.</div>
+            </div>
+            <div class="phone-monitor__qr" id="phoneMonitorQr">
+              <div class="phone-monitor__qr-code" id="phoneMonitorQrCode" aria-hidden="true">QR</div>
+              <div class="phone-monitor__qr-label" id="phoneMonitorQrLabel">QR appears when phone URL is ready.</div>
             </div>
           </div>
         </section>
