@@ -21,6 +21,9 @@ Desktop ground station app for telemetry monitoring.
 3. Use **Connect Link** for live telemetry, or load a profile with **Load CanSat Test** or **Simulation File** and then run **SIM ENABLE** plus **SIM ACTIVATE** to replay it locally.
 4. Open the **Phone Monitor** URL shown in the desktop app on a phone connected to the same Wi-Fi or hotspot.
 
+Validation dataset:
+- `docs/ground_station_validation_profile.csv` gives a 60-second end-to-end mission replay with boot, pad, ascent, apogee, descent, landing, recovery, GPS acquisition/dropout, packet-count gaps, IMU motion, command echo examples, and one temporary voltage dropout.
+
 ## Tech stack
 
 - Electron

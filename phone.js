@@ -37,11 +37,11 @@ const metricDefinitions = [
 ];
 
 const plotDefinitions = [
-  { key: "altitude", label: "Altitude (m) vs Time", color: "#0f6a9e", unit: "m" },
-  { key: "voltage", label: "Voltage (V) vs Time", color: "#0f9d58", unit: "V" },
-  { key: "current", label: "Current (A) vs Time", color: "#c57f00", unit: "A" },
-  { key: "pressure", label: "Pressure (kPa) vs Time", color: "#7a4a13", unit: "kPa" },
-  { key: "temperature", label: "Temperature (C) vs Time", color: "#d9480f", unit: "C", wide: true },
+  { key: "altitude", label: "Altitude (m) vs Time (s)", color: "#0f6a9e", unit: "m" },
+  { key: "voltage", label: "Voltage (V) vs Time (s)", color: "#0f9d58", unit: "V" },
+  { key: "current", label: "Current (A) vs Time (s)", color: "#c57f00", unit: "A" },
+  { key: "pressure", label: "Pressure (kPa) vs Time (s)", color: "#7a4a13", unit: "kPa" },
+  { key: "temperature", label: "Temperature (C) vs Time (s)", color: "#d9480f", unit: "C", wide: true },
 ];
 
 function withMonitorToken(path) {
@@ -62,6 +62,8 @@ const plotHistoryLimit = 40;
 const plotHistory = Object.fromEntries(plotDefinitions.map(({ key }) => [key, []]));
 let historyContextKey = "";
 let lastHistoryPacket = null;
+let lastHistoryTimeSeconds = null;
+let lastMapEmbedUrl = "";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -83,6 +85,18 @@ function toNumber(value) {
   if (!text) return null;
   const n = Number(text);
   return Number.isFinite(n) ? n : null;
+}
+
+function parseClockTime(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d{2}:\d{2}:\d{2}$/.test(text)) return null;
+  const [hours, minutes, seconds] = text.split(":").map(Number);
+  return (hours * 3600) + (minutes * 60) + seconds;
+}
+
+function formatPlotSecondLabel(value) {
+  if (!Number.isFinite(value)) return "--";
+  return `${Math.round(value)}s`;
 }
 
 function findTelemetryField(snapshot, key) {
@@ -125,28 +139,42 @@ function renderPlotCard({ key, label, color, unit, wide = false }, metrics) {
       <rect x="0" y="0" width="${width}" height="${height}" fill="#fff"></rect>
       <line x1="${rect.left}" y1="${rect.top}" x2="${rect.left}" y2="${rect.bottom}" stroke="#15202b" stroke-width="1.5"></line>
       <line x1="${rect.left}" y1="${rect.bottom}" x2="${rect.right}" y2="${rect.bottom}" stroke="#15202b" stroke-width="1.5"></line>
-      <text x="${(rect.left + rect.right) / 2}" y="131" text-anchor="middle" fill="#61717d" font-size="10" font-weight="700">Packets</text>
+      <text x="${(rect.left + rect.right) / 2}" y="136" text-anchor="middle" fill="#61717d" font-size="10" font-weight="700">Time (s)</text>
     `;
 
   if (history.length > 1) {
     const allY = history.map((point) => point.y);
     const yMinRaw = Math.min(...allY);
     const yMaxRaw = Math.max(...allY);
+    const xMinRaw = history[0].x;
+    const xMaxRaw = history[history.length - 1].x;
     const pad = (yMaxRaw - yMinRaw) * 0.1 || 1;
     const yMin = yMinRaw - pad;
     const yMax = yMaxRaw + pad;
     const d = buildPath(history, rect, yMin, yMax);
     const lastPoint = history[history.length - 1];
-    const xMin = history[0].x;
-    const xMax = history[history.length - 1].x;
-    const sx = (x) => rect.left + ((x - xMin) / (xMax - xMin || 1)) * (rect.right - rect.left);
+    const xMidRaw = xMinRaw + ((xMaxRaw - xMinRaw) / 2);
+    const sx = (x) => rect.left + ((x - xMinRaw) / (xMaxRaw - xMinRaw || 1)) * (rect.right - rect.left);
     const sy = (y) => rect.bottom - ((y - yMin) / (yMax - yMin || 1)) * (rect.bottom - rect.top);
     const labelX = Math.min(rect.right - 6, sx(lastPoint.x) + 6);
     const labelY = Math.max(rect.top + 12, sy(lastPoint.y) - 6);
+    const ticks = xMaxRaw > xMinRaw
+      ? [
+          { x: rect.left, label: formatPlotSecondLabel(xMinRaw), anchor: "start" },
+          { x: (rect.left + rect.right) / 2, label: formatPlotSecondLabel(xMidRaw), anchor: "middle" },
+          { x: rect.right, label: formatPlotSecondLabel(xMaxRaw), anchor: "end" },
+        ]
+      : [
+          { x: (rect.left + rect.right) / 2, label: formatPlotSecondLabel(xMinRaw), anchor: "middle" },
+        ];
 
     svg += `
       <text x="${rect.left + 4}" y="${rect.top + 10}" fill="#61717d" font-size="10" font-weight="700">${escapeHtml(formatPlotValue(yMaxRaw.toFixed(1), unit))}</text>
       <text x="${rect.left + 4}" y="${rect.bottom - 4}" fill="#61717d" font-size="10" font-weight="700">${escapeHtml(formatPlotValue(yMinRaw.toFixed(1), unit))}</text>
+      ${ticks.map((tick) => `
+        <line x1="${tick.x.toFixed(1)}" y1="${rect.bottom}" x2="${tick.x.toFixed(1)}" y2="${(rect.bottom + 5).toFixed(1)}" stroke="#61717d" stroke-width="1.2"></line>
+        <text x="${tick.x.toFixed(1)}" y="${(rect.bottom + 14).toFixed(1)}" text-anchor="${tick.anchor}" fill="#61717d" font-size="9" font-weight="700">${escapeHtml(tick.label)}</text>
+      `).join("")}
       <path d="${d}" fill="none" stroke="${color}" stroke-width="2.5"></path>
       <circle cx="${sx(lastPoint.x).toFixed(1)}" cy="${sy(lastPoint.y).toFixed(1)}" r="3.5" fill="${color}"></circle>
       <text x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" fill="${color}" font-size="11" font-weight="700">${escapeHtml(formatPlotValue(lastPoint.y.toFixed(1), unit))}</text>
@@ -255,7 +283,10 @@ function renderGps(snapshot) {
 
   if (gps.embedUrl) {
     elements.mapStatus.textContent = gps.status || (gps.fix ? "GPS lock active" : "Waiting for GPS fix");
-    elements.mapFrame.src = gps.embedUrl;
+    if (lastMapEmbedUrl !== gps.embedUrl) {
+      elements.mapFrame.src = gps.embedUrl;
+      lastMapEmbedUrl = gps.embedUrl;
+    }
     elements.mapTrail.innerHTML = gps.trailMarkup || "";
     elements.mapLink.textContent = "Open full map";
     elements.mapLink.href = gps.mapUrl;
@@ -263,6 +294,7 @@ function renderGps(snapshot) {
   } else {
     elements.mapStatus.textContent = "Waiting for GPS fix";
     elements.mapFrame.removeAttribute("src");
+    lastMapEmbedUrl = "";
     elements.mapTrail.innerHTML = "";
     elements.mapLink.textContent = "Waiting for GPS fix";
     elements.mapLink.removeAttribute("href");
@@ -302,12 +334,14 @@ function resetPlotHistory() {
     plotHistory[key] = [];
   });
   lastHistoryPacket = null;
+  lastHistoryTimeSeconds = null;
 }
 
 function updatePlotHistory(snapshot) {
   const mission = snapshot?.mission || {};
   const metrics = snapshot?.metrics || {};
   const packet = toNumber(mission.packetsReceived);
+  const timeSeconds = parseClockTime(mission.time);
   const source = String(snapshot?.sourceLabel || "");
   const contextKey = [
     source,
@@ -319,18 +353,19 @@ function updatePlotHistory(snapshot) {
     resetPlotHistory();
   }
 
-  if (!snapshot?.hasData || packet == null) return;
-  if (lastHistoryPacket != null && packet < lastHistoryPacket) {
+  if (!snapshot?.hasData || packet == null || timeSeconds == null) return;
+  if ((lastHistoryPacket != null && packet < lastHistoryPacket) || (lastHistoryTimeSeconds != null && timeSeconds < lastHistoryTimeSeconds)) {
     resetPlotHistory();
-  } else if (lastHistoryPacket != null && packet === lastHistoryPacket) {
+  } else if ((lastHistoryPacket != null && packet === lastHistoryPacket) || (lastHistoryTimeSeconds != null && timeSeconds === lastHistoryTimeSeconds)) {
     return;
   }
   lastHistoryPacket = packet;
+  lastHistoryTimeSeconds = timeSeconds;
 
   plotDefinitions.forEach(({ key }) => {
     const value = toNumber(metrics[key]);
     if (value == null) return;
-    plotHistory[key].push({ x: packet, y: value });
+    plotHistory[key].push({ x: timeSeconds, y: value });
     while (plotHistory[key].length > plotHistoryLimit) plotHistory[key].shift();
   });
 }

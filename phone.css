@@ -38,10 +38,16 @@ body {
 }
 
 .hero {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px 14px;
+  align-items: start;
+}
+
+.hero__copy {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
 }
 
 .hero__eyebrow,
@@ -61,6 +67,7 @@ body {
 
 .hero__status {
   min-width: 120px;
+  justify-self: start;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -69,6 +76,32 @@ body {
   font-size: 12px;
   font-weight: 800;
   text-align: center;
+}
+
+.hero__logo {
+  width: clamp(84px, 24vw, 116px);
+  min-height: clamp(84px, 24vw, 116px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  padding: 8px;
+  border: 1px solid #23303c;
+  border-radius: 20px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 10px 22px rgba(25, 40, 54, 0.16);
+  background:
+    radial-gradient(circle at 50% 36%, rgba(52, 191, 239, 0.22), rgba(52, 191, 239, 0) 48%),
+    linear-gradient(180deg, #263341 0%, #1a232d 100%);
+}
+
+.hero__logo-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.28));
 }
 
 .panel {
@@ -333,7 +366,18 @@ body {
 
 @media (max-width: 520px) {
   .hero {
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr) 96px;
+    gap: 10px 12px;
+  }
+
+  .hero__title {
+    font-size: 26px;
+  }
+
+  .hero__logo {
+    width: 96px;
+    min-height: 96px;
+    padding: 7px;
   }
 
   .status-row,

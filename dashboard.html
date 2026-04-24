@@ -46,6 +46,9 @@
     <div class="fit-stage">
       <main class="layout fit-root" role="main" aria-label="Ground station dashboard layout">
         <section class="panel" aria-label="Status">
+          <div class="team-logo" aria-label="SkyBound team logo">
+            <img class="team-logo__image" src="./SkyBound/SkyBound_Logo.png" alt="SkyBound CanSat Project logo" />
+          </div>
           <h2 class="panel__title">Status</h2>
           <div class="kv">
             <div class="kv__k">Mission Time (UTC)</div>
@@ -82,7 +85,6 @@
           </div>
           <div class="sim-manual">
             <div class="sim-manual__title">Manual SIM Pressure</div>
-            <div class="sim-manual__hint">Enter `SIMP,&lt;PRESSURE&gt;` in pascals. With hardware connected it sends the real command; locally it applies a simulated sample.</div>
             <div class="sim-manual__controls">
               <label class="sim-manual__field" for="simPressureInput">
                 <span class="sim-manual__label">Pressure (Pa)</span>
@@ -125,23 +127,23 @@
           <h2 class="panel__title panel__title--spaced">Plots</h2>
           <div class="plots" aria-label="Plots grid">
             <figure class="plot">
-              <figcaption class="plot__title">Altitude (m) vs Time</figcaption>
+              <figcaption class="plot__title">Altitude (m) vs Time (s)</figcaption>
               <svg id="plotAlt" class="plot__svg" viewBox="0 0 540 225" role="img" aria-label="Altitude plot"></svg>
             </figure>
             <figure class="plot">
-              <figcaption class="plot__title">Voltage (V) vs Time</figcaption>
+              <figcaption class="plot__title">Voltage (V) vs Time (s)</figcaption>
               <svg id="plotBat" class="plot__svg" viewBox="0 0 540 225" role="img" aria-label="Voltage plot"></svg>
             </figure>
             <figure class="plot">
-              <figcaption class="plot__title">Current (A) vs Time</figcaption>
+              <figcaption class="plot__title">Current (A) vs Time (s)</figcaption>
               <svg id="plotCurrent" class="plot__svg" viewBox="0 0 540 225" role="img" aria-label="Current plot"></svg>
             </figure>
             <figure class="plot">
-              <figcaption class="plot__title">Pressure (kPa) vs Time</figcaption>
+              <figcaption class="plot__title">Pressure (kPa) vs Time (s)</figcaption>
               <svg id="plotPressure" class="plot__svg" viewBox="0 0 540 225" role="img" aria-label="Pressure plot"></svg>
             </figure>
             <figure class="plot">
-              <figcaption class="plot__title">Temperature (C) vs Time</figcaption>
+              <figcaption class="plot__title">Temperature (C) vs Time (s)</figcaption>
               <svg id="plotTemp" class="plot__svg" viewBox="0 0 540 225" role="img" aria-label="Temperature plot"></svg>
             </figure>
           </div>

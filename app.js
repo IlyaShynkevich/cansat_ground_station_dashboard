@@ -154,6 +154,8 @@ let serialInvalidLineCount = 0;
 let serialBinaryChunkCount = 0;
 let serialPreviewEntries = [];
 let serialDebugHint = "No serial traffic yet.";
+let scheduledUiUpdateTimer = null;
+let scheduledUiUpdatePending = false;
 let availablePorts = [];
 let suppressCloseEvent = false;
 let lastSentCommand = "--";
@@ -168,9 +170,15 @@ const simulationMinDelayMs = 150;
 const simulationMaxDelayMs = 2000;
 const defaultSimulationProfileName = "cansat_2023_simp.txt";
 const defaultSimulationProfilePath = "./docs/cansat_2023_simp.txt";
+const liveTelemetryUiIntervalMs = 1000;
 const serialPreviewLimit = 8;
 const serialPreviewTextLimit = 140;
 const mapTrailLimit = 48;
+const mapLaunchViewWidthMeters = 1000;
+const mapLaunchViewHeightMeters = 800;
+const mapLaunchAnchorLeftRatio = 0.18;
+const mapLaunchAnchorBottomRatio = 0.22;
+const mapLaunchViewPadRatio = 0.08;
 const serialApi = window.electronSerial || null;
 const monitorApi = window.electronMonitor || null;
 const qrCodeMinVersion = 1;
@@ -898,6 +906,43 @@ function getSelectedBaudRate() {
   return Number.isFinite(baud) && baud > 0 ? baud : defaultBaudRate;
 }
 
+function describeSerialConnectFailure(error, portPath, baudRate) {
+  const rawMessage = String(error?.message || error || "Unknown error")
+    .replace(/^Error invoking remote method 'serial:connect':\s*/i, "")
+    .replace(/^Error:\s*/i, "")
+    .trim();
+
+  if (/access denied|permission denied/i.test(rawMessage)) {
+    return {
+      sourceLabel: `Source: ${portPath} busy or blocked`,
+      cmdEcho: `Link error: ${rawMessage}. Close XCTU, Arduino Serial Monitor, or any other serial tool using ${portPath}, then unplug/replug the adapter and retry.`,
+      debugHint: `Windows denied access to ${portPath}. Another app may still own the port.`,
+    };
+  }
+
+  if (/busy|resource busy/i.test(rawMessage)) {
+    return {
+      sourceLabel: `Source: ${portPath} already in use`,
+      cmdEcho: `Link error: ${rawMessage}. Another process is already using ${portPath}. Close the other connection and retry.`,
+      debugHint: `${portPath} is already open in another app or terminal.`,
+    };
+  }
+
+  if (/not found|cannot find|does not exist|no such file/i.test(rawMessage)) {
+    return {
+      sourceLabel: `Source: ${portPath} is no longer available`,
+      cmdEcho: `Link error: ${rawMessage}. Refresh the COM list and reconnect after checking the USB adapter.`,
+      debugHint: `${portPath} disappeared while trying to open it.`,
+    };
+  }
+
+  return {
+    sourceLabel: `Source: Link connection failed (${rawMessage})`,
+    cmdEcho: `Link error: ${rawMessage}`,
+    debugHint: `Could not open ${portPath} at ${baudRate} baud.`,
+  };
+}
+
 function normalizeSerialPayload(payload) {
   if (typeof payload === "string") {
     return {
@@ -938,6 +983,18 @@ function parseClockTime(value) {
   if (!isTimeToken(value)) return null;
   const [hours, minutes, seconds] = String(value).split(":").map(Number);
   return (hours * 3600) + (minutes * 60) + seconds;
+}
+
+function getRowPlotTimeSeconds(row, fallbackSeconds = 0) {
+  const missionSeconds = parseClockTime(row?.MISSION_TIME);
+  if (missionSeconds != null) return missionSeconds;
+  const sequenceSeconds = toNumber(row?._SEQ);
+  return sequenceSeconds != null ? sequenceSeconds : fallbackSeconds;
+}
+
+function formatPlotSecondLabel(value) {
+  if (!Number.isFinite(value)) return "--";
+  return `${Math.round(value)}s`;
 }
 
 function formatLatLon(lat, lon) {
@@ -1461,6 +1518,26 @@ function publishMonitorSnapshot() {
   monitorApi.publishSnapshot(buildMonitorSnapshot());
 }
 
+function cancelScheduledUiUpdate() {
+  scheduledUiUpdatePending = false;
+  if (scheduledUiUpdateTimer == null) return;
+  window.clearTimeout(scheduledUiUpdateTimer);
+  scheduledUiUpdateTimer = null;
+}
+
+function scheduleUiUpdate() {
+  scheduledUiUpdatePending = true;
+  if (scheduledUiUpdateTimer != null) return;
+
+  // Batch serial bursts into a single dashboard refresh once per second.
+  scheduledUiUpdateTimer = window.setTimeout(() => {
+    scheduledUiUpdateTimer = null;
+    if (!scheduledUiUpdatePending) return;
+    scheduledUiUpdatePending = false;
+    updateUi();
+  }, liveTelemetryUiIntervalMs);
+}
+
 async function initPhoneMonitor() {
   if (!monitorApi?.getInfo) {
     setPhoneMonitorState(
@@ -1505,7 +1582,7 @@ function setDot(dot, cls) {
 }
 
 function buildBaseGrid(svg, options = {}) {
-  const { wide = false, yAxisLabel = "", xAxisLabel = "Time" } = options;
+  const { wide = false, yAxisLabel = "", xAxisLabel = "Time (s)" } = options;
   const width = wide ? 1100 : 540;
   const left = 46;
   const top = 22;
@@ -1574,6 +1651,30 @@ function renderSeries(svg, series, options = {}) {
     `<text x="${rect.left + 8}" y="${rect.bottom - 7}" fill="#5d6a75" font-size="12" font-weight="700">${formatPlotValue(yMinRaw, digits, unit)}</text>`
   );
 
+  const allX = series.flatMap((s) => s.points.map((p) => p.x)).filter((value) => Number.isFinite(value));
+  if (allX.length) {
+    const xMinRaw = Math.min(...allX);
+    const xMaxRaw = Math.max(...allX);
+    const xMidRaw = xMinRaw + ((xMaxRaw - xMinRaw) / 2);
+    const ticks = xMaxRaw > xMinRaw
+      ? [
+          { x: rect.left, label: formatPlotSecondLabel(xMinRaw), anchor: "start" },
+          { x: (rect.left + rect.right) / 2, label: formatPlotSecondLabel(xMidRaw), anchor: "middle" },
+          { x: rect.right, label: formatPlotSecondLabel(xMaxRaw), anchor: "end" },
+        ]
+      : [
+          { x: (rect.left + rect.right) / 2, label: formatPlotSecondLabel(xMinRaw), anchor: "middle" },
+        ];
+
+    svg.insertAdjacentHTML(
+      "beforeend",
+      ticks.map((tick) => (
+        `<line x1="${tick.x.toFixed(1)}" y1="${rect.bottom}" x2="${tick.x.toFixed(1)}" y2="${(rect.bottom + 5).toFixed(1)}" stroke="#5d6a75" stroke-width="1.5"></line>` +
+        `<text x="${tick.x.toFixed(1)}" y="${(rect.bottom + 18).toFixed(1)}" text-anchor="${tick.anchor}" fill="#5d6a75" font-size="11" font-weight="700">${tick.label}</text>`
+      )).join("")
+    );
+  }
+
   series.forEach((s) => {
     const d = buildPath(s.points, rect, yMin, yMax);
     if (!d) return;
@@ -1628,12 +1729,12 @@ function updateQuickChecks(row) {
   setDot(elements.checkBattery, normalizeVoltage(row.VOLTAGE) != null ? "dot--ok" : "dot--warn");
 }
 
-function findGpsTrailPoints(limit = mapTrailLimit) {
+function findMapPathPoints() {
   const visibleRows = getVisibleDataRows();
   const points = [];
   let previousKey = "";
 
-  for (let i = visibleRows.length - 1; i >= 0; i -= 1) {
+  for (let i = 0; i < visibleRows.length; i += 1) {
     const row = visibleRows[i];
     const lat = toNumber(row?.GPS_LATITUDE);
     const lon = toNumber(row?.GPS_LONGITUDE);
@@ -1644,10 +1745,15 @@ function findGpsTrailPoints(limit = mapTrailLimit) {
     previousKey = key;
 
     points.push({ lat, lon, time: row.MISSION_TIME || "--" });
-    if (points.length >= limit) break;
   }
 
-  return points.reverse();
+  return points;
+}
+
+function findGpsTrailPoints(limit = mapTrailLimit) {
+  if (limit <= 0) return [];
+  const points = findMapPathPoints();
+  return points.slice(-limit);
 }
 
 function findRecentGpsPoints() {
@@ -1664,9 +1770,19 @@ function mercatorY(lat) {
   return Math.log(Math.tan((Math.PI / 4) + (radians / 2)));
 }
 
+function metersToLatitudeDelta(meters) {
+  return meters / 111320;
+}
+
+function metersToLongitudeDelta(meters, latitude) {
+  const radians = clampMapLatitude(latitude) * (Math.PI / 180);
+  const metersPerDegree = 111320 * Math.max(0.2, Math.abs(Math.cos(radians)));
+  return meters / metersPerDegree;
+}
+
 function buildMapState(lat, lon) {
-  const trailPoints = findGpsTrailPoints();
-  const lastTrailPoint = trailPoints[trailPoints.length - 1] || null;
+  const pathPoints = findMapPathPoints();
+  const lastTrailPoint = pathPoints[pathPoints.length - 1] || null;
   const focusPoint = lat != null && lon != null
     ? { lat, lon, time: rowAt(index)?.MISSION_TIME || "--" }
     : lastTrailPoint;
@@ -1683,26 +1799,27 @@ function buildMapState(lat, lon) {
     };
   }
 
-  const points = trailPoints.length ? [...trailPoints] : [focusPoint];
+  const points = pathPoints.length ? [...pathPoints] : [focusPoint];
   const focusKey = `${focusPoint.lat.toFixed(5)},${focusPoint.lon.toFixed(5)}`;
   if (!points.some((point) => `${point.lat.toFixed(5)},${point.lon.toFixed(5)}` === focusKey)) {
     points.push(focusPoint);
   }
 
+  const launchPoint = points[0];
   const lats = points.map((point) => point.lat);
   const lons = points.map((point) => point.lon);
-  let minLat = Math.min(...lats);
-  let maxLat = Math.max(...lats);
-  let minLon = Math.min(...lons);
-  let maxLon = Math.max(...lons);
-  const latSpan = Math.max(0.002, maxLat - minLat);
-  const lonSpan = Math.max(0.002, maxLon - minLon);
-  const latPad = latSpan * 0.35;
-  const lonPad = lonSpan * 0.35;
-  minLat = clampMapLatitude(minLat - latPad);
-  maxLat = clampMapLatitude(maxLat + latPad);
-  minLon -= lonPad;
-  maxLon += lonPad;
+  const baseLatSpan = metersToLatitudeDelta(mapLaunchViewHeightMeters);
+  const baseLonSpan = metersToLongitudeDelta(mapLaunchViewWidthMeters, launchPoint.lat);
+  const latPad = baseLatSpan * mapLaunchViewPadRatio;
+  const lonPad = baseLonSpan * mapLaunchViewPadRatio;
+  let minLat = launchPoint.lat - (baseLatSpan * mapLaunchAnchorBottomRatio);
+  let maxLat = launchPoint.lat + (baseLatSpan * (1 - mapLaunchAnchorBottomRatio));
+  let minLon = launchPoint.lon - (baseLonSpan * mapLaunchAnchorLeftRatio);
+  let maxLon = launchPoint.lon + (baseLonSpan * (1 - mapLaunchAnchorLeftRatio));
+  minLat = clampMapLatitude(Math.min(minLat, Math.min(...lats) - latPad));
+  maxLat = clampMapLatitude(Math.max(maxLat, Math.max(...lats) + latPad));
+  minLon = Math.min(minLon, Math.min(...lons) - lonPad);
+  maxLon = Math.max(maxLon, Math.max(...lons) + lonPad);
 
   const bbox = [minLon, minLat, maxLon, maxLat]
     .map((value) => value.toFixed(6))
@@ -1791,6 +1908,7 @@ function updateMap(lat, lon) {
 }
 
 function clearUi() {
+  cancelScheduledUiUpdate();
   elements.missionTime.textContent = "--";
   elements.modeBadge.textContent = "--";
   elements.stateBadge.textContent = "--";
@@ -1836,6 +1954,7 @@ function renderFullTelemetry(row) {
 }
 
 function updateUi() {
+  cancelScheduledUiUpdate();
   const row = rowAt(index);
   if (!row) {
     clearUi();
@@ -1893,34 +2012,34 @@ function updateUi() {
   const start = Math.max(0, visibleRows.length - tailSize);
   const windowRows = visibleRows.slice(start);
   renderSeries(plots.alt, [{
-    points: windowRows.map((r) => ({ x: toNumber(r._SEQ) ?? 0, y: toNumber(r.ALTITUDE) ?? 0 })),
+    points: windowRows.map((r, rowIndex) => ({ x: getRowPlotTimeSeconds(r, start + rowIndex), y: toNumber(r.ALTITUDE) ?? 0 })),
     color: "#0f6a9e",
     width: 3,
   }], plotOptions.alt);
   renderSeries(plots.bat, [{
     points: windowRows
-      .map((r) => ({ x: toNumber(r._SEQ) ?? 0, y: normalizeVoltage(r.VOLTAGE) }))
+      .map((r, rowIndex) => ({ x: getRowPlotTimeSeconds(r, start + rowIndex), y: normalizeVoltage(r.VOLTAGE) }))
       .filter((p) => p.y != null),
     color: "#0f9d58",
     width: 3,
   }], plotOptions.bat);
   renderSeries(plots.current, [{
     points: windowRows
-      .map((r) => ({ x: toNumber(r._SEQ) ?? 0, y: toNumber(r.CURRENT) }))
+      .map((r, rowIndex) => ({ x: getRowPlotTimeSeconds(r, start + rowIndex), y: toNumber(r.CURRENT) }))
       .filter((p) => p.y != null),
     color: "#c57f00",
     width: 3,
   }], plotOptions.current);
   renderSeries(plots.pressure, [{
     points: windowRows
-      .map((r) => ({ x: toNumber(r._SEQ) ?? 0, y: normalizePressure(r.PRESSURE) }))
+      .map((r, rowIndex) => ({ x: getRowPlotTimeSeconds(r, start + rowIndex), y: normalizePressure(r.PRESSURE) }))
       .filter((p) => p.y != null),
     color: "#7a4a13",
     width: 3,
   }], plotOptions.pressure);
   renderSeries(plots.temp, [{
     points: windowRows
-      .map((r) => ({ x: toNumber(r._SEQ) ?? 0, y: toNumber(r.TEMPERATURE) }))
+      .map((r, rowIndex) => ({ x: getRowPlotTimeSeconds(r, start + rowIndex), y: toNumber(r.TEMPERATURE) }))
       .filter((p) => p.y != null),
     color: "#d9480f",
     width: 3,
@@ -2200,7 +2319,7 @@ function handleSerialLine(line) {
   if (data.length === 1) {
     elements.sourceLabel.textContent = `Source: ${serialPort?.path || "Link"} @ ${currentBaudRate}`;
   }
-  updateUi();
+  scheduleUiUpdate();
 }
 
 function handleSerialChunk(payload) {
@@ -2309,9 +2428,10 @@ async function connectSerial() {
     return;
   }
 
+  const selectedPath = elements.portSelect.value;
+  const selectedBaudRate = getSelectedBaudRate();
+
   try {
-    const selectedPath = elements.portSelect.value;
-    const selectedBaudRate = getSelectedBaudRate();
     if (!selectedPath) {
       elements.sourceLabel.textContent = "Source: Select a COM port";
       publishMonitorSnapshot();
@@ -2344,10 +2464,12 @@ async function connectSerial() {
     publishMonitorSnapshot();
   } catch (error) {
     console.error(error);
-    const message = String(error?.message || error || "Unknown error");
-    elements.sourceLabel.textContent = `Source: Link connection failed (${message})`;
-    elements.cmdEcho.textContent = `Link error: ${message}`;
+    const failure = describeSerialConnectFailure(error, selectedPath || "COM port", selectedBaudRate);
+    elements.sourceLabel.textContent = failure.sourceLabel;
+    elements.cmdEcho.textContent = failure.cmdEcho;
+    setSerialDebugHint(failure.debugHint);
     await disconnectSerial(false);
+    publishMonitorSnapshot();
   }
 }
 

@@ -19,6 +19,7 @@ const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
   ".svg": "image/svg+xml",
 };
 const preferredMonitorPort = 63668;
@@ -32,7 +33,12 @@ let mainWindow = null;
 let activeSerialPort = null;
 let monitorSnapshot = buildDefaultMonitorSnapshot();
 const monitorClients = new Set();
-const remoteMonitorAssets = new Set(["phone.html", "phone.css", "phone.js"]);
+const remoteMonitorAssets = new Set([
+  "phone.html",
+  "phone.css",
+  "phone.js",
+  "SkyBound/SkyBound_Logo.png",
+]);
 
 function buildDefaultMonitorSnapshot() {
   return {

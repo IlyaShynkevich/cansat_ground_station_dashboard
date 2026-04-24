@@ -100,6 +100,30 @@ body {
 .panel__title--spaced { margin-top: 2px; }
 .divider { height: 2px; background: var(--border); margin: 5px 0; }
 
+.team-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 136px;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 2px solid #23303c;
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background:
+    radial-gradient(circle at 50% 36%, rgba(52, 191, 239, 0.22), rgba(52, 191, 239, 0) 48%),
+    linear-gradient(180deg, #263341 0%, #1a232d 100%);
+}
+
+.team-logo__image {
+  display: block;
+  width: min(100%, 210px);
+  max-height: 168px;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.28));
+}
+
 .kv {
   display: grid;
   grid-template-columns: 1fr auto;
