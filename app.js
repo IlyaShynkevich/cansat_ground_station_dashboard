@@ -163,6 +163,7 @@ let serialPreviewEntries = [];
 let serialDebugHint = "No serial traffic yet.";
 let scheduledUiUpdateTimer = null;
 let scheduledUiUpdatePending = false;
+let currentPhoneMonitorUrl = "";
 let availablePorts = [];
 let suppressCloseEvent = false;
 let lastSentCommand = "--";
@@ -194,6 +195,7 @@ const mapWebMercatorMaxLat = 85.05112878;
 const earthEquatorMeters = 40075016.686;
 const serialApi = window.electronSerial || null;
 const monitorApi = window.electronMonitor || null;
+const phoneMonitorRefreshMs = 5000;
 const qrCodeMinVersion = 1;
 const qrCodeMaxVersion = 40;
 const qrCodePenaltyRun = 3;
@@ -774,14 +776,20 @@ function setPhoneMonitorState(status, url = "", hint = "") {
     elements.phoneMonitorUrl.textContent = url;
     elements.phoneMonitorUrl.href = url;
     elements.phoneMonitorUrl.removeAttribute("aria-disabled");
-    setPhoneMonitorQrState(url);
+    if (url !== currentPhoneMonitorUrl) {
+      currentPhoneMonitorUrl = url;
+      setPhoneMonitorQrState(url);
+    }
     return;
   }
 
   elements.phoneMonitorUrl.textContent = "Waiting for phone URL";
   elements.phoneMonitorUrl.removeAttribute("href");
   elements.phoneMonitorUrl.setAttribute("aria-disabled", "true");
-  setPhoneMonitorQrState("");
+  if (currentPhoneMonitorUrl) {
+    currentPhoneMonitorUrl = "";
+    setPhoneMonitorQrState("");
+  }
 }
 
 function toNumber(value) {
@@ -1551,7 +1559,7 @@ function scheduleUiUpdate() {
   }, liveTelemetryUiIntervalMs);
 }
 
-async function initPhoneMonitor() {
+async function refreshPhoneMonitorInfo() {
   if (!monitorApi?.getInfo) {
     setPhoneMonitorState(
       "Phone monitor unavailable",
@@ -1587,6 +1595,13 @@ async function initPhoneMonitor() {
   }
 
   publishMonitorSnapshot();
+}
+
+function initPhoneMonitor() {
+  refreshPhoneMonitorInfo();
+  if (monitorApi?.getInfo) {
+    window.setInterval(refreshPhoneMonitorInfo, phoneMonitorRefreshMs);
+  }
 }
 
 function setDot(dot, cls) {

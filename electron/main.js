@@ -120,19 +120,36 @@ function sanitizeMonitorSnapshot(snapshot) {
   };
 }
 
+function scoreNetworkInterface(entry) {
+  const name = String(entry.name || "").toLowerCase();
+  const address = String(entry.address || "");
+
+  let score = 0;
+  if (/wi-?fi|wlan|wireless|ethernet|lan/.test(name)) score += 40;
+  if (/virtual|vmware|vbox|virtualbox|hyper-v|docker|wsl|loopback|bluetooth/.test(name)) score -= 80;
+  if (/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(address)) score += 30;
+  if (/^169\.254\./.test(address)) score -= 60;
+
+  return score;
+}
+
 function getLanPhoneUrls(port) {
   if (!port) return [];
-  const urls = new Set();
+  const urls = new Map();
   const interfaces = os.networkInterfaces();
 
-  Object.values(interfaces).forEach((entries) => {
+  Object.entries(interfaces).forEach(([name, entries]) => {
     (entries || []).forEach((entry) => {
       if (!entry || entry.family !== "IPv4" || entry.internal) return;
-      urls.add(`http://${entry.address}:${port}/phone.html`);
+      const interfaceInfo = { ...entry, name };
+      const url = `http://${entry.address}:${port}/phone.html`;
+      urls.set(url, Math.max(urls.get(url) ?? -Infinity, scoreNetworkInterface(interfaceInfo)));
     });
   });
 
-  return [...urls];
+  return [...urls.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([url]) => url);
 }
 
 function getMonitorTokenFile() {
