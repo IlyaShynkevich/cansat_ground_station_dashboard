@@ -565,7 +565,33 @@ body {
   border: 2px solid var(--border);
   border-radius: 8px;
   display: block;
-  background: linear-gradient(180deg, #ffffff 0%, #eef4f8 100%);
+  position: relative;
+  overflow: hidden;
+  pointer-events: none;
+  background: #eef4f8;
+}
+
+.map-frame::before,
+.map-frame::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.map-frame::before {
+  inset: 14px;
+  border: 1px solid rgba(15, 106, 158, 0.18);
+  border-radius: 6px;
+}
+
+.map-frame::after {
+  left: 50%;
+  top: 50%;
+  width: 34px;
+  height: 34px;
+  border: 2px solid rgba(217, 72, 15, 0.22);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
 }
 
 .map-trail {
@@ -574,6 +600,75 @@ body {
   width: 100%;
   height: 100%;
   pointer-events: none;
+}
+
+.map-svg-base {
+  fill: #eef4f8;
+}
+
+.map-svg-tile {
+  image-rendering: auto;
+}
+
+.map-svg-tile-mask {
+  fill: rgba(255, 255, 255, 0.08);
+}
+
+.map-svg-border {
+  fill: none;
+  stroke: rgba(15, 106, 158, 0.18);
+  stroke-width: 1;
+}
+
+.map-svg-attribution {
+  fill: rgba(8, 25, 43, 0.68);
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.88);
+  stroke-width: 3px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.map-zoom {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  display: grid;
+  grid-template-columns: 28px minmax(58px, auto) 28px;
+  align-items: center;
+  overflow: hidden;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 6px 14px rgba(20, 36, 50, 0.12);
+}
+
+.map-zoom__btn {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: #ffffff;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.map-zoom__btn:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.map-zoom__value {
+  min-width: 58px;
+  padding: 0 6px;
+  border-inline: 2px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-align: center;
+  white-space: nowrap;
 }
 
 #mapStatus { font-weight: 700; color: var(--muted); }

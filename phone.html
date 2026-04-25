@@ -87,13 +87,12 @@
     <section class="panel">
       <div class="panel__eyebrow">GPS</div>
       <div class="map-stage">
-        <iframe
+        <div
           id="mapFrame"
           class="map-frame"
           title="Live GPS map"
-          loading="lazy"
-          referrerpolicy="no-referrer-when-downgrade"
-        ></iframe>
+          aria-hidden="true"
+        ></div>
         <svg
           id="mapTrail"
           class="map-trail"

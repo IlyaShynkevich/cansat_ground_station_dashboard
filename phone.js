@@ -281,19 +281,17 @@ function renderGps(snapshot) {
   const gps = snapshot?.gps || {};
   elements.gpsDisplay.textContent = gps.display || "Waiting for GPS fix";
 
-  if (gps.embedUrl) {
+  if (gps.mapUrl) {
     elements.mapStatus.textContent = gps.status || (gps.fix ? "GPS lock active" : "Waiting for GPS fix");
-    if (lastMapEmbedUrl !== gps.embedUrl) {
-      elements.mapFrame.src = gps.embedUrl;
-      lastMapEmbedUrl = gps.embedUrl;
-    }
+    elements.mapFrame.classList.add("map-frame--active");
+    lastMapEmbedUrl = "";
     elements.mapTrail.innerHTML = gps.trailMarkup || "";
     elements.mapLink.textContent = "Open full map";
     elements.mapLink.href = gps.mapUrl;
     elements.mapLink.removeAttribute("aria-disabled");
   } else {
     elements.mapStatus.textContent = "Waiting for GPS fix";
-    elements.mapFrame.removeAttribute("src");
+    elements.mapFrame.classList.remove("map-frame--active");
     lastMapEmbedUrl = "";
     elements.mapTrail.innerHTML = "";
     elements.mapLink.textContent = "Waiting for GPS fix";

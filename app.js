@@ -21,6 +21,9 @@ const elements = {
   mapLink: document.getElementById("mapLink"),
   mapPointA: document.getElementById("mapPointA"),
   mapPointB: document.getElementById("mapPointB"),
+  mapZoomOut: document.getElementById("mapZoomOut"),
+  mapZoomIn: document.getElementById("mapZoomIn"),
+  mapZoomValue: document.getElementById("mapZoomValue"),
   cmdSent: document.getElementById("cmdSent"),
   cmdEcho: document.getElementById("cmdEcho"),
   simPressureInput: document.getElementById("simPressureInput"),
@@ -162,6 +165,7 @@ let lastSentCommand = "--";
 let lastMapEmbedUrl = "";
 let currentBaudRate = 115200;
 let lastKnownTeamId = defaultCommandTeamId;
+let mapZoomScale = 1.7;
 
 const tailSize = 80;
 const defaultBaudRate = 115200;
@@ -174,11 +178,16 @@ const liveTelemetryUiIntervalMs = 1000;
 const serialPreviewLimit = 8;
 const serialPreviewTextLimit = 140;
 const mapTrailLimit = 48;
-const mapLaunchViewWidthMeters = 1000;
-const mapLaunchViewHeightMeters = 800;
-const mapLaunchAnchorLeftRatio = 0.18;
-const mapLaunchAnchorBottomRatio = 0.22;
-const mapLaunchViewPadRatio = 0.08;
+const mapFollowViewWidthMeters = 900;
+const mapFollowViewHeightMeters = 650;
+const mapMinZoomScale = 0.8;
+const mapMaxZoomScale = 5;
+const mapZoomStep = 0.25;
+const mapTileSize = 256;
+const mapTileMaxZoom = 19;
+const mapTileMinZoom = 1;
+const mapWebMercatorMaxLat = 85.05112878;
+const earthEquatorMeters = 40075016.686;
 const serialApi = window.electronSerial || null;
 const monitorApi = window.electronMonitor || null;
 const qrCodeMinVersion = 1;
@@ -1765,19 +1774,95 @@ function clampMapLatitude(lat) {
   return Math.max(-85, Math.min(85, lat));
 }
 
-function mercatorY(lat) {
-  const radians = clampMapLatitude(lat) * (Math.PI / 180);
-  return Math.log(Math.tan((Math.PI / 4) + (radians / 2)));
+function formatMapViewDistance(meters) {
+  return meters >= 1000
+    ? `${(meters / 1000).toFixed(1)} km`
+    : `${Math.round(meters)} m`;
 }
 
-function metersToLatitudeDelta(meters) {
-  return meters / 111320;
+function updateMapZoomControls() {
+  if (!elements.mapZoomValue) return;
+  const viewWidth = mapFollowViewWidthMeters * mapZoomScale;
+  elements.mapZoomValue.textContent = formatMapViewDistance(viewWidth);
+  if (elements.mapZoomOut) elements.mapZoomOut.disabled = mapZoomScale >= mapMaxZoomScale;
+  if (elements.mapZoomIn) elements.mapZoomIn.disabled = mapZoomScale <= mapMinZoomScale;
 }
 
-function metersToLongitudeDelta(meters, latitude) {
-  const radians = clampMapLatitude(latitude) * (Math.PI / 180);
-  const metersPerDegree = 111320 * Math.max(0.2, Math.abs(Math.cos(radians)));
-  return meters / metersPerDegree;
+function setMapZoomScale(nextScale) {
+  mapZoomScale = Math.max(mapMinZoomScale, Math.min(mapMaxZoomScale, nextScale));
+  updateMapZoomControls();
+
+  const row = rowAt(index);
+  if (row) {
+    updateMap(toNumber(row.GPS_LATITUDE), toNumber(row.GPS_LONGITUDE));
+    publishMonitorSnapshot();
+  }
+}
+
+function clampMapTileZoom(zoom) {
+  return Math.max(mapTileMinZoom, Math.min(mapTileMaxZoom, zoom));
+}
+
+function getMapTileZoom(latitude, viewWidthMeters) {
+  const latitudeFactor = Math.max(0.2, Math.cos(clampMapLatitude(latitude) * (Math.PI / 180)));
+  const desiredMetersPerPixel = viewWidthMeters / 520;
+  const zoom = Math.round(Math.log2((earthEquatorMeters * latitudeFactor) / (mapTileSize * desiredMetersPerPixel)));
+  return clampMapTileZoom(zoom);
+}
+
+function getMapWorldPixel(lat, lon, zoom) {
+  const scale = mapTileSize * (2 ** zoom);
+  const clampedLat = Math.max(-mapWebMercatorMaxLat, Math.min(mapWebMercatorMaxLat, lat));
+  const latRadians = clampedLat * (Math.PI / 180);
+  return {
+    x: ((lon + 180) / 360) * scale,
+    y: ((1 - (Math.log(Math.tan(latRadians) + (1 / Math.cos(latRadians))) / Math.PI)) / 2) * scale,
+  };
+}
+
+function getMapPixelScale(latitude, zoom, viewWidthMeters) {
+  const latitudeFactor = Math.max(0.2, Math.cos(clampMapLatitude(latitude) * (Math.PI / 180)));
+  const tileMetersPerPixel = (earthEquatorMeters * latitudeFactor) / (mapTileSize * (2 ** zoom));
+  return tileMetersPerPixel / (viewWidthMeters / 520);
+}
+
+function projectMapPoint(lat, lon, focusWorldPixel, zoom, pixelScale) {
+  const worldPixel = getMapWorldPixel(lat, lon, zoom);
+  return {
+    x: 260 + ((worldPixel.x - focusWorldPixel.x) * pixelScale),
+    y: 130 + ((worldPixel.y - focusWorldPixel.y) * pixelScale),
+  };
+}
+
+function buildMapTileMarkup(focusPoint, viewWidthMeters, viewHeightMeters) {
+  const zoom = getMapTileZoom(focusPoint.lat, viewWidthMeters);
+  const focusWorldPixel = getMapWorldPixel(focusPoint.lat, focusPoint.lon, zoom);
+  const pixelScale = getMapPixelScale(focusPoint.lat, zoom, viewWidthMeters);
+  const scaledTileSize = mapTileSize * pixelScale;
+  const minTileX = Math.floor((focusWorldPixel.x - (260 / pixelScale)) / mapTileSize) - 1;
+  const maxTileX = Math.floor((focusWorldPixel.x + (260 / pixelScale)) / mapTileSize) + 1;
+  const minTileY = Math.floor((focusWorldPixel.y - (130 / pixelScale)) / mapTileSize) - 1;
+  const maxTileY = Math.floor((focusWorldPixel.y + (130 / pixelScale)) / mapTileSize) + 1;
+  const tileCount = 2 ** zoom;
+  const tiles = [];
+
+  for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
+    if (tileY < 0 || tileY >= tileCount) continue;
+
+    for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
+      const wrappedTileX = ((tileX % tileCount) + tileCount) % tileCount;
+      const x = 260 + (((tileX * mapTileSize) - focusWorldPixel.x) * pixelScale);
+      const y = 130 + (((tileY * mapTileSize) - focusWorldPixel.y) * pixelScale);
+      tiles.push(`<image class="map-svg-tile" href="https://tile.openstreetmap.org/${zoom}/${wrappedTileX}/${tileY}.png" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${scaledTileSize.toFixed(1)}" height="${scaledTileSize.toFixed(1)}" preserveAspectRatio="none"></image>`);
+    }
+  }
+
+  return {
+    zoom,
+    focusWorldPixel,
+    pixelScale,
+    markup: `<rect class="map-svg-base" x="0" y="0" width="520" height="260" rx="12"></rect><g class="map-svg-tiles">${tiles.join("")}</g><rect class="map-svg-tile-mask" x="0" y="0" width="520" height="260" rx="12"></rect>`,
+  };
 }
 
 function buildMapState(lat, lon) {
@@ -1799,54 +1884,43 @@ function buildMapState(lat, lon) {
     };
   }
 
-  const points = pathPoints.length ? [...pathPoints] : [focusPoint];
+  const points = findGpsTrailPoints();
+  if (!points.length) points.push(focusPoint);
   const focusKey = `${focusPoint.lat.toFixed(5)},${focusPoint.lon.toFixed(5)}`;
-  if (!points.some((point) => `${point.lat.toFixed(5)},${point.lon.toFixed(5)}` === focusKey)) {
+  const focusPointIndex = points.findIndex((point) => `${point.lat.toFixed(5)},${point.lon.toFixed(5)}` === focusKey);
+  if (focusPointIndex >= 0) {
+    points[focusPointIndex] = focusPoint;
+  } else {
     points.push(focusPoint);
   }
 
-  const launchPoint = points[0];
-  const lats = points.map((point) => point.lat);
-  const lons = points.map((point) => point.lon);
-  const baseLatSpan = metersToLatitudeDelta(mapLaunchViewHeightMeters);
-  const baseLonSpan = metersToLongitudeDelta(mapLaunchViewWidthMeters, launchPoint.lat);
-  const latPad = baseLatSpan * mapLaunchViewPadRatio;
-  const lonPad = baseLonSpan * mapLaunchViewPadRatio;
-  let minLat = launchPoint.lat - (baseLatSpan * mapLaunchAnchorBottomRatio);
-  let maxLat = launchPoint.lat + (baseLatSpan * (1 - mapLaunchAnchorBottomRatio));
-  let minLon = launchPoint.lon - (baseLonSpan * mapLaunchAnchorLeftRatio);
-  let maxLon = launchPoint.lon + (baseLonSpan * (1 - mapLaunchAnchorLeftRatio));
-  minLat = clampMapLatitude(Math.min(minLat, Math.min(...lats) - latPad));
-  maxLat = clampMapLatitude(Math.max(maxLat, Math.max(...lats) + latPad));
-  minLon = Math.min(minLon, Math.min(...lons) - lonPad);
-  maxLon = Math.max(maxLon, Math.max(...lons) + lonPad);
-
-  const bbox = [minLon, minLat, maxLon, maxLat]
-    .map((value) => value.toFixed(6))
-    .join(",");
-  const marker = `${focusPoint.lat.toFixed(6)},${focusPoint.lon.toFixed(6)}`;
-  const embedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${encodeURIComponent(marker)}`;
   const mapUrl = `https://www.openstreetmap.org/?mlat=${focusPoint.lat.toFixed(6)}&mlon=${focusPoint.lon.toFixed(6)}#map=16/${focusPoint.lat.toFixed(6)}/${focusPoint.lon.toFixed(6)}`;
-
-  const minY = mercatorY(minLat);
-  const maxY = mercatorY(maxLat);
+  const viewWidthMeters = mapFollowViewWidthMeters * mapZoomScale;
+  const viewHeightMeters = mapFollowViewHeightMeters * mapZoomScale;
+  const tileLayer = buildMapTileMarkup(focusPoint, viewWidthMeters, viewHeightMeters);
   const projected = points.map((point) => {
-    const x = ((point.lon - minLon) / (maxLon - minLon || 1)) * 520;
-    const y = (1 - ((mercatorY(point.lat) - minY) / (maxY - minY || 1))) * 260;
+    const projectedPoint = projectMapPoint(
+      point.lat,
+      point.lon,
+      tileLayer.focusWorldPixel,
+      tileLayer.zoom,
+      tileLayer.pixelScale
+    );
     return {
       ...point,
-      x: Math.max(10, Math.min(510, x)),
-      y: Math.max(10, Math.min(250, y)),
+      x: projectedPoint.x,
+      y: projectedPoint.y,
     };
   });
   const polylinePoints = projected.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
   const startPoint = projected[0];
-  const currentPoint = projected[projected.length - 1];
+  const currentPoint = projected.find((point) => `${point.lat.toFixed(5)},${point.lon.toFixed(5)}` === focusKey)
+    || projected[projected.length - 1];
   const recentPoints = points.slice(-2);
   const pointA = recentPoints[0] || focusPoint;
   const pointB = recentPoints[1] || pointA;
   const status = lat != null && lon != null
-    ? (projected.length > 1 ? `GPS lock active | Trail ${projected.length} pts` : "GPS lock active")
+    ? (projected.length > 1 ? `Following CanSat | Trail ${projected.length} pts` : "Following CanSat")
     : "GPS temporarily unavailable | Showing last route";
 
   const trailMarkup = projected.length
@@ -1856,15 +1930,23 @@ function buildMapState(lat, lon) {
           <stop offset="0%" stop-color="#0f6a9e"></stop>
           <stop offset="100%" stop-color="#d9480f"></stop>
         </linearGradient>
+        <clipPath id="mapViewportClip">
+          <rect x="0" y="0" width="520" height="260" rx="12"></rect>
+        </clipPath>
       </defs>
-      ${projected.length > 1 ? `<polyline points="${polylinePoints}" fill="none" stroke="url(#mapTrailGradient)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"></polyline>` : ""}
-      <circle cx="${startPoint.x.toFixed(1)}" cy="${startPoint.y.toFixed(1)}" r="6" fill="#ffffff" stroke="#0f6a9e" stroke-width="3"></circle>
-      <circle cx="${currentPoint.x.toFixed(1)}" cy="${currentPoint.y.toFixed(1)}" r="8" fill="#d9480f" stroke="#ffffff" stroke-width="3"></circle>
+      <g clip-path="url(#mapViewportClip)">
+        ${tileLayer.markup}
+        ${projected.length > 1 ? `<polyline points="${polylinePoints}" fill="none" stroke="url(#mapTrailGradient)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"></polyline>` : ""}
+        <circle cx="${startPoint.x.toFixed(1)}" cy="${startPoint.y.toFixed(1)}" r="6" fill="#ffffff" stroke="#0f6a9e" stroke-width="3"></circle>
+        <circle cx="${currentPoint.x.toFixed(1)}" cy="${currentPoint.y.toFixed(1)}" r="8" fill="#d9480f" stroke="#ffffff" stroke-width="3"></circle>
+      </g>
+      <rect class="map-svg-border" x="10" y="10" width="500" height="240" rx="8"></rect>
+      <text class="map-svg-attribution" x="512" y="252" text-anchor="end">(c) OpenStreetMap</text>
     `
     : "";
 
   return {
-    embedUrl,
+    embedUrl: "",
     mapUrl,
     trailMarkup,
     pointA,
@@ -1877,11 +1959,9 @@ function buildMapState(lat, lon) {
 function updateMap(lat, lon) {
   const mapState = buildMapState(lat, lon);
 
-  if (mapState.embedUrl) {
-    if (lastMapEmbedUrl !== mapState.embedUrl) {
-      elements.mapFrame.src = mapState.embedUrl;
-      lastMapEmbedUrl = mapState.embedUrl;
-    }
+  if (mapState.mapUrl) {
+    elements.mapFrame.classList.add("map-frame--active");
+    lastMapEmbedUrl = "";
     elements.mapTrail.innerHTML = mapState.trailMarkup;
     elements.mapStatus.textContent = mapState.status;
     elements.mapLink.href = mapState.mapUrl;
@@ -1896,7 +1976,7 @@ function updateMap(lat, lon) {
     return;
   }
 
-  elements.mapFrame.removeAttribute("src");
+  elements.mapFrame.classList.remove("map-frame--active");
   elements.mapTrail.innerHTML = "";
   lastMapEmbedUrl = "";
   elements.mapStatus.textContent = "Waiting for GPS fix";
@@ -2085,6 +2165,12 @@ function isValidTelemetryRow(row) {
     }
   }
   return numericHits >= 4;
+}
+
+function hasGpsCoordinates(row) {
+  const lat = toNumber(row?.GPS_LATITUDE);
+  const lon = toNumber(row?.GPS_LONGITUDE);
+  return lat != null && lon != null && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
 }
 
 function splitPacketTokens(line) {
@@ -2558,7 +2644,7 @@ function parseSimulationCsv(text) {
       .map((line) => parseCsvLine(line))
       .filter((cols) => cols.some((value) => value !== ""))
       .map((cols, rowIndex) => buildSimulationRowFromColumns(headers, cols, rowIndex))
-      .filter((row) => isValidTelemetryRow(row) || normalizePressure(row.PRESSURE) != null);
+      .filter((row) => isValidTelemetryRow(row) || normalizePressure(row.PRESSURE) != null || hasGpsCoordinates(row));
   }
 
   const pressureIndex = headers.findIndex((name) => name === "PRESSURE");
@@ -2628,6 +2714,8 @@ elements.baudSelect.addEventListener("change", () => {
 elements.refreshPortsBtn.addEventListener("click", refreshPorts);
 elements.portSelect.addEventListener("change", updateLinkPrep);
 elements.exportLogBtn.addEventListener("click", exportTelemetryLog);
+elements.mapZoomOut?.addEventListener("click", () => setMapZoomScale(mapZoomScale + mapZoomStep));
+elements.mapZoomIn?.addEventListener("click", () => setMapZoomScale(mapZoomScale - mapZoomStep));
 elements.loadDefaultSimBtn?.addEventListener("click", () => {
   loadBundledSimulationProfile().catch((error) => {
     console.error(error);
@@ -2921,6 +3009,7 @@ async function initImu3D() {
 currentBaudRate = getSelectedBaudRate();
 resetSerialDiagnostics();
 clearUi();
+updateMapZoomControls();
 initPhoneMonitor();
 refreshPorts();
 initImu3D();

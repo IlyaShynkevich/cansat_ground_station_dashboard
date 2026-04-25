@@ -175,13 +175,12 @@
           <h3 class="panel__subtitle">Location Mini Map</h3>
           <div class="map-card">
             <div class="map-stage">
-              <iframe
+              <div
                 id="mapFrame"
                 class="map-frame"
                 title="GPS location mini map"
-                loading="lazy"
-                referrerpolicy="no-referrer-when-downgrade"
-              ></iframe>
+                aria-hidden="true"
+              ></div>
               <svg
                 id="mapTrail"
                 class="map-trail"
@@ -189,6 +188,11 @@
                 role="img"
                 aria-label="Rocket route trail"
               ></svg>
+              <div class="map-zoom" aria-label="Map zoom controls">
+                <button class="map-zoom__btn" type="button" id="mapZoomOut" title="Zoom out">-</button>
+                <span class="map-zoom__value" id="mapZoomValue">--</span>
+                <button class="map-zoom__btn" type="button" id="mapZoomIn" title="Zoom in">+</button>
+              </div>
             </div>
             <div id="mapStatus">Waiting for GPS fix</div>
             <a id="mapLink" target="_blank" rel="noopener noreferrer">Open in map</a>
