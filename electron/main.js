@@ -33,12 +33,17 @@ let mainWindow = null;
 let activeSerialPort = null;
 let monitorSnapshot = buildDefaultMonitorSnapshot();
 const monitorClients = new Set();
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 const remoteMonitorAssets = new Set([
   "phone.html",
   "phone.css",
   "phone.js",
   "SkyBound/SkyBound_Logo.png",
 ]);
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+}
 
 function buildDefaultMonitorSnapshot() {
   return {
@@ -357,6 +362,7 @@ function createWindow() {
     minHeight: 760,
     backgroundColor: "#f4f6f8",
     autoHideMenuBar: true,
+    fullscreen: true,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -375,20 +381,33 @@ function createWindow() {
     if (mainWindow === win) {
       mainWindow = null;
     }
+
+    if (process.platform !== "darwin") {
+      app.quit();
+    }
   });
 }
 
-app.whenReady().then(async () => {
-  remoteMonitorToken = loadOrCreateMonitorToken();
-  await createStaticServer();
-  createWindow();
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+if (hasSingleInstanceLock) {
+  app.on("second-instance", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
   });
-});
+
+  app.whenReady().then(async () => {
+    remoteMonitorToken = loadOrCreateMonitorToken();
+    await createStaticServer();
+    createWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

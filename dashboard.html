@@ -18,7 +18,6 @@
   <header class="topbar">
     <div class="topbar__left">
       <div class="title">Skybound Ground Station</div>
-      <div class="subtitle">Serial / XBee Telemetry + Live Monitoring Application</div>
     </div>
     <div class="topbar__right">
       <label class="file-btn" for="simCsvInput">Simulation File</label>
@@ -45,13 +44,13 @@
   <div class="viewport">
     <div class="fit-stage">
       <main class="layout fit-root" role="main" aria-label="Ground station dashboard layout">
-        <section class="panel" aria-label="Status">
+        <section class="panel panel--status" aria-label="Status">
           <div class="team-logo" aria-label="SkyBound team logo">
             <img class="team-logo__image" src="./SkyBound/SkyBound_Logo.png" alt="SkyBound CanSat Project logo" />
           </div>
           <h2 class="panel__title">Status</h2>
           <div class="kv">
-            <div class="kv__k">Mission Time (UTC)</div>
+            <div class="kv__k">Mission Time</div>
             <div class="kv__v" id="missionTime">--</div>
             <div class="kv__k">Mode</div>
             <div class="kv__v"><span class="badge" id="modeBadge">--</span></div>
@@ -146,6 +145,19 @@
               <figcaption class="plot__title">Temperature (C) vs Time (s)</figcaption>
               <svg id="plotTemp" class="plot__svg" viewBox="0 0 540 225" role="img" aria-label="Temperature plot"></svg>
             </figure>
+            <figure class="plot mission-clock-card">
+              <figcaption class="plot__title">Mission Time Log</figcaption>
+              <div class="mission-clock" role="img" aria-label="Analog mission time display">
+                <div class="mission-clock__face">
+                  <div class="mission-clock__ticks" aria-hidden="true"></div>
+                  <div class="mission-clock__hand mission-clock__hand--hour" id="missionClockHour" aria-hidden="true"></div>
+                  <div class="mission-clock__hand mission-clock__hand--minute" id="missionClockMinute" aria-hidden="true"></div>
+                  <div class="mission-clock__hand mission-clock__hand--second" id="missionClockSecond" aria-hidden="true"></div>
+                  <div class="mission-clock__pin" aria-hidden="true"></div>
+                  <div class="mission-clock__digital" id="missionClockDigital">--:--:--</div>
+                </div>
+              </div>
+            </figure>
           </div>
 
           <h2 class="panel__title panel__title--spaced">Full Telemetry</h2>
@@ -213,7 +225,7 @@
           <div class="phone-monitor phone-monitor--dock">
             <div class="phone-monitor__main">
               <div class="phone-monitor__status" id="phoneMonitorStatus">Preparing phone</div>
-              <div class="phone-monitor__meta">
+              <div class="phone-monitor__meta phone-monitor__hidden">
                 <div class="phone-monitor__meta-row">
                   <div class="phone-monitor__meta-k">Port</div>
                   <div class="phone-monitor__meta-v" id="linkPort">Not selected</div>
@@ -224,13 +236,13 @@
                 </div>
               </div>
               <a
-                class="phone-monitor__link"
+                class="phone-monitor__link phone-monitor__hidden"
                 id="phoneMonitorUrl"
                 href="#"
                 target="_blank"
                 rel="noopener noreferrer"
               >Waiting for phone URL</a>
-              <div class="phone-monitor__hint" id="phoneMonitorHint">Same Wi-Fi or hotspot.</div>
+              <div class="phone-monitor__hint phone-monitor__hidden" id="phoneMonitorHint">Same Wi-Fi or hotspot.</div>
             </div>
             <div class="phone-monitor__qr" id="phoneMonitorQr">
               <div class="phone-monitor__qr-code" id="phoneMonitorQrCode" aria-hidden="true">QR</div>

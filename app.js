@@ -1,6 +1,10 @@
 const elements = {
   sourceLabel: document.getElementById("sourceLabel"),
   missionTime: document.getElementById("missionTime"),
+  missionClockHour: document.getElementById("missionClockHour"),
+  missionClockMinute: document.getElementById("missionClockMinute"),
+  missionClockSecond: document.getElementById("missionClockSecond"),
+  missionClockDigital: document.getElementById("missionClockDigital"),
   modeBadge: document.getElementById("modeBadge"),
   stateBadge: document.getElementById("stateBadge"),
   packetsReceived: document.getElementById("packetsReceived"),
@@ -1990,6 +1994,7 @@ function updateMap(lat, lon) {
 function clearUi() {
   cancelScheduledUiUpdate();
   elements.missionTime.textContent = "--";
+  updateMissionClock(null);
   elements.modeBadge.textContent = "--";
   elements.stateBadge.textContent = "--";
   elements.packetsReceived.textContent = "0";
@@ -2033,6 +2038,42 @@ function renderFullTelemetry(row) {
   }).join("");
 }
 
+function parseMissionTimeParts(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3]);
+  if (![hours, minutes, seconds].every(Number.isFinite)) return null;
+  return {
+    hours,
+    minutes: Math.max(0, Math.min(59, minutes)),
+    seconds: Math.max(0, Math.min(59, seconds)),
+    display: `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`,
+  };
+}
+
+function updateMissionClock(value) {
+  const parts = parseMissionTimeParts(value);
+  const display = parts?.display || "--:--:--";
+  if (elements.missionClockDigital) {
+    elements.missionClockDigital.textContent = display;
+  }
+
+  const hours = parts?.hours || 0;
+  const minutes = parts?.minutes || 0;
+  const seconds = parts?.seconds || 0;
+  const hourAngle = ((hours % 12) + minutes / 60 + seconds / 3600) * 30;
+  const minuteAngle = (minutes + seconds / 60) * 6;
+  const secondAngle = seconds * 6;
+
+  elements.missionClockHour?.style.setProperty("--hour-angle", `${hourAngle}deg`);
+  elements.missionClockMinute?.style.setProperty("--minute-angle", `${minuteAngle}deg`);
+  elements.missionClockSecond?.style.setProperty("--second-angle", `${secondAngle}deg`);
+}
+
 function updateUi() {
   cancelScheduledUiUpdate();
   const row = rowAt(index);
@@ -2043,7 +2084,9 @@ function updateUi() {
 
   const stats = computePacketStats(row);
 
-  elements.missionTime.textContent = row.MISSION_TIME || "--";
+  const missionTime = row.MISSION_TIME || "--";
+  elements.missionTime.textContent = missionTime;
+  updateMissionClock(missionTime);
   elements.modeBadge.textContent = (row.MODE || "--").trim();
   elements.stateBadge.textContent = (row.STATE || "--").trim();
   elements.packetsReceived.textContent = String(stats.received);
