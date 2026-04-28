@@ -163,6 +163,7 @@ let serialPreviewEntries = [];
 let serialDebugHint = "No serial traffic yet.";
 let scheduledUiUpdateTimer = null;
 let scheduledUiUpdatePending = false;
+let lastLiveTelemetryUiUpdateAt = 0;
 let currentPhoneMonitorUrl = "";
 let availablePorts = [];
 let suppressCloseEvent = false;
@@ -185,9 +186,9 @@ const serialPreviewTextLimit = 140;
 const mapTrailLimit = 48;
 const mapFollowViewWidthMeters = 900;
 const mapFollowViewHeightMeters = 650;
-const mapMinZoomScale = 0.8;
+const mapMinZoomScale = 0.08;
 const mapMaxZoomScale = 5;
-const mapZoomStep = 0.25;
+const mapZoomStep = 0.1;
 const mapTileSize = 256;
 const mapTileMaxZoom = 19;
 const mapTileMinZoom = 1;
@@ -1550,13 +1551,17 @@ function scheduleUiUpdate() {
   scheduledUiUpdatePending = true;
   if (scheduledUiUpdateTimer != null) return;
 
-  // Batch serial bursts into a single dashboard refresh once per second.
+  const elapsedSinceLastUpdate = Date.now() - lastLiveTelemetryUiUpdateAt;
+  const delay = Math.max(0, liveTelemetryUiIntervalMs - elapsedSinceLastUpdate);
+
+  // Batch serial bursts, while still allowing one visible refresh per second.
   scheduledUiUpdateTimer = window.setTimeout(() => {
     scheduledUiUpdateTimer = null;
     if (!scheduledUiUpdatePending) return;
     scheduledUiUpdatePending = false;
+    lastLiveTelemetryUiUpdateAt = Date.now();
     updateUi();
-  }, liveTelemetryUiIntervalMs);
+  }, delay);
 }
 
 async function refreshPhoneMonitorInfo() {
@@ -1632,10 +1637,8 @@ function buildBaseGrid(svg, options = {}) {
   `;
 }
 
-function buildPath(points, rect, yMin, yMax) {
+function buildPath(points, rect, xMin, xMax, yMin, yMax) {
   if (points.length < 2) return "";
-  const xMin = points[0].x;
-  const xMax = points[points.length - 1].x;
   const sx = (x) => rect.left + ((x - xMin) / (xMax - xMin || 1)) * (rect.right - rect.left);
   const sy = (y) => rect.bottom - ((y - yMin) / (yMax - yMin || 1)) * (rect.bottom - rect.top);
   let d = "";
@@ -1654,7 +1657,12 @@ function formatPlotValue(value, digits = 2, unit = "") {
 function renderSeries(svg, series, options = {}) {
   const { wide = false, unit = "", digits = 2 } = options;
   buildBaseGrid(svg, options);
-  if (!series.length || !series.some((s) => s.points.length > 1)) {
+  const cleanedSeries = series.map((s) => ({
+    ...s,
+    points: s.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)),
+  }));
+
+  if (!cleanedSeries.length || !cleanedSeries.some((s) => s.points.length > 1)) {
     const x = wide ? 550 : 270;
     svg.insertAdjacentHTML(
       "beforeend",
@@ -1663,12 +1671,15 @@ function renderSeries(svg, series, options = {}) {
     return;
   }
 
-  const allY = series.flatMap((s) => s.points.map((p) => p.y));
+  const allY = cleanedSeries.flatMap((s) => s.points.map((p) => p.y));
   const yMinRaw = Math.min(...allY);
   const yMaxRaw = Math.max(...allY);
   const pad = (yMaxRaw - yMinRaw) * 0.08 || 1;
   const yMin = yMinRaw - pad;
   const yMax = yMaxRaw + pad;
+  const allX = cleanedSeries.flatMap((s) => s.points.map((p) => p.x));
+  const xMinRaw = Math.min(...allX);
+  const xMaxRaw = Math.max(...allX);
   const rect = wide
     ? { left: 46, top: 22, right: 1072, bottom: 188 }
     : { left: 46, top: 22, right: 516, bottom: 188 };
@@ -1679,10 +1690,7 @@ function renderSeries(svg, series, options = {}) {
     `<text x="${rect.left + 8}" y="${rect.bottom - 7}" fill="#5d6a75" font-size="12" font-weight="700">${formatPlotValue(yMinRaw, digits, unit)}</text>`
   );
 
-  const allX = series.flatMap((s) => s.points.map((p) => p.x)).filter((value) => Number.isFinite(value));
   if (allX.length) {
-    const xMinRaw = Math.min(...allX);
-    const xMaxRaw = Math.max(...allX);
     const xMidRaw = xMinRaw + ((xMaxRaw - xMinRaw) / 2);
     const ticks = xMaxRaw > xMinRaw
       ? [
@@ -1703,8 +1711,8 @@ function renderSeries(svg, series, options = {}) {
     );
   }
 
-  series.forEach((s) => {
-    const d = buildPath(s.points, rect, yMin, yMax);
+  cleanedSeries.forEach((s) => {
+    const d = buildPath(s.points, rect, xMinRaw, xMaxRaw, yMin, yMax);
     if (!d) return;
     const dash = s.dashed ? ' stroke-dasharray="7 6"' : "";
     svg.insertAdjacentHTML(
@@ -1714,9 +1722,7 @@ function renderSeries(svg, series, options = {}) {
 
     const first = s.points[0];
     const last = s.points[s.points.length - 1];
-    const xMin = s.points[0].x;
-    const xMax = s.points[s.points.length - 1].x;
-    const sx = (x) => rect.left + ((x - xMin) / (xMax - xMin || 1)) * (rect.right - rect.left);
+    const sx = (x) => rect.left + ((x - xMinRaw) / (xMaxRaw - xMinRaw || 1)) * (rect.right - rect.left);
     const sy = (y) => rect.bottom - ((y - yMin) / (yMax - yMin || 1)) * (rect.bottom - rect.top);
     const firstX = sx(first.x).toFixed(1);
     const firstY = sy(first.y).toFixed(1);
@@ -1748,6 +1754,17 @@ function getVisibleDataRows() {
   if (!data.length) return [];
   const visibleCount = Math.max(1, Math.min(index + 1, data.length));
   return data.slice(0, visibleCount);
+}
+
+function getCurrentMissionTimeSegmentRows(rows) {
+  for (let i = rows.length - 1; i > 0; i -= 1) {
+    const currentSeconds = parseClockTime(rows[i]?.MISSION_TIME);
+    const previousSeconds = parseClockTime(rows[i - 1]?.MISSION_TIME);
+    if (currentSeconds != null && previousSeconds != null && previousSeconds - currentSeconds > 5) {
+      return rows.slice(i);
+    }
+  }
+  return rows;
 }
 
 function updateQuickChecks(row) {
@@ -2147,8 +2164,9 @@ function updateUi() {
   renderFullTelemetry(row);
 
   const visibleRows = getVisibleDataRows();
-  const start = Math.max(0, visibleRows.length - tailSize);
-  const windowRows = visibleRows.slice(start);
+  const plotRows = getCurrentMissionTimeSegmentRows(visibleRows);
+  const start = Math.max(0, plotRows.length - tailSize);
+  const windowRows = plotRows.slice(start);
   renderSeries(plots.alt, [{
     points: windowRows.map((r, rowIndex) => ({ x: getRowPlotTimeSeconds(r, start + rowIndex), y: toNumber(r.ALTITUDE) ?? 0 })),
     color: "#0f6a9e",
@@ -2398,6 +2416,12 @@ function buildOutboundCommand(cmd) {
   }
   if (normalized === "SIM DISABLE") {
     return { display: cmd, payload: `CMD,${teamId},SIM,DISABLE\r` };
+  }
+  if (normalized === "MEC 11 ON") {
+    return { display: cmd, payload: `CMD,${teamId},MEC,11,ON\r` };
+  }
+  if (normalized === "MEC 12 ON") {
+    return { display: cmd, payload: `CMD,${teamId},MEC,12,ON\r` };
   }
   if (simPressureMatch) {
     const pressure = simPressureMatch[1];

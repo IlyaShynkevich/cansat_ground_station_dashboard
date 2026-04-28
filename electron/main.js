@@ -33,6 +33,9 @@ let mainWindow = null;
 let activeSerialPort = null;
 let monitorSnapshot = buildDefaultMonitorSnapshot();
 const monitorClients = new Set();
+let isQuitting = false;
+let didCleanupBeforeQuit = false;
+let cleanupPromise = null;
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 const remoteMonitorAssets = new Set([
   "phone.html",
@@ -361,7 +364,11 @@ function closePort(port) {
       return;
     }
 
-    port.close(() => resolve());
+    const timeout = setTimeout(resolve, 1500);
+    port.close(() => {
+      clearTimeout(timeout);
+      resolve();
+    });
   });
 }
 
@@ -369,6 +376,40 @@ async function closeActiveSerialPort() {
   const port = activeSerialPort;
   activeSerialPort = null;
   await closePort(port);
+}
+
+function closeStaticServer() {
+  return new Promise((resolve) => {
+    if (!staticServer) {
+      resolve();
+      return;
+    }
+
+    const server = staticServer;
+    staticServer = null;
+    const timeout = setTimeout(resolve, 1500);
+    server.close(() => {
+      clearTimeout(timeout);
+      resolve();
+    });
+    server.closeAllConnections?.();
+  });
+}
+
+function cleanupBeforeQuit() {
+  if (cleanupPromise) return cleanupPromise;
+  cleanupPromise = Promise.allSettled([
+    closeActiveSerialPort(),
+    closeStaticServer(),
+    Promise.resolve().then(closeMonitorClients),
+  ]);
+  return cleanupPromise;
+}
+
+function quitAfterCleanup() {
+  if (isQuitting) return;
+  isQuitting = true;
+  app.quit();
 }
 
 function createWindow() {
@@ -400,7 +441,7 @@ function createWindow() {
     }
 
     if (process.platform !== "darwin") {
-      app.quit();
+      quitAfterCleanup();
     }
   });
 }
@@ -428,14 +469,19 @@ if (hasSingleInstanceLock) {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
-    app.quit();
+    quitAfterCleanup();
   }
 });
 
-app.on("before-quit", () => {
-  closeActiveSerialPort().catch(() => {});
-  closeMonitorClients();
-  staticServer?.close();
+app.on("before-quit", (event) => {
+  isQuitting = true;
+  if (didCleanupBeforeQuit) return;
+
+  event.preventDefault();
+  cleanupBeforeQuit().finally(() => {
+    didCleanupBeforeQuit = true;
+    app.exit(0);
+  });
 });
 
 ipcMain.handle("serial:list", async () => {
