@@ -881,7 +881,15 @@ body {
   white-space: nowrap;
 }
 
-#mapStatus { font-weight: 700; color: var(--muted); }
+#mapStatus {
+  min-height: 18px;
+  font-weight: 700;
+  color: var(--muted);
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .map-card a { color: var(--accent); font-weight: 700; text-decoration: none; }
 .map-card a:hover { text-decoration: underline; }
 .map-points {

@@ -169,6 +169,9 @@ let availablePorts = [];
 let suppressCloseEvent = false;
 let lastSentCommand = "--";
 let lastMapEmbedUrl = "";
+let currentRawLogPath = "";
+let lastSerialByteAt = 0;
+let lastTelemetryRowAt = 0;
 let currentBaudRate = 115200;
 let lastKnownTeamId = defaultCommandTeamId;
 let mapZoomScale = 1.7;
@@ -190,13 +193,18 @@ const mapMinZoomScale = 0.08;
 const mapMaxZoomScale = 5;
 const mapZoomStep = 0.1;
 const mapTileSize = 256;
-const mapTileMaxZoom = 19;
+const mapTileMaxZoom = 18;
 const mapTileMinZoom = 1;
 const mapWebMercatorMaxLat = 85.05112878;
+const gpsNullIslandEpsilon = 0.00001;
+const gpsMaxFieldJumpMeters = 2000;
 const earthEquatorMeters = 40075016.686;
 const serialApi = window.electronSerial || null;
 const monitorApi = window.electronMonitor || null;
 const phoneMonitorRefreshMs = 5000;
+const serialByteStaleMs = 5000;
+const serialTelemetryStaleMs = 8000;
+const serialWatchdogIntervalMs = 1000;
 const qrCodeMinVersion = 1;
 const qrCodeMaxVersion = 40;
 const qrCodePenaltyRun = 3;
@@ -1024,6 +1032,37 @@ function formatLatLon(lat, lon) {
   return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
 }
 
+function isGpsCoordinateInRange(lat, lon) {
+  return lat != null
+    && lon != null
+    && lat >= -90
+    && lat <= 90
+    && lon >= -180
+    && lon <= 180
+    && !(Math.abs(lat) < gpsNullIslandEpsilon && Math.abs(lon) < gpsNullIslandEpsilon);
+}
+
+function getGpsPointFromRow(row) {
+  const lat = toNumber(row?.GPS_LATITUDE);
+  const lon = toNumber(row?.GPS_LONGITUDE);
+  if (!isGpsCoordinateInRange(lat, lon)) return null;
+  return { lat, lon, time: row?.MISSION_TIME || "--" };
+}
+
+function getDistanceMeters(a, b) {
+  if (!a || !b) return 0;
+  const toRadians = (value) => value * (Math.PI / 180);
+  const lat1 = toRadians(a.lat);
+  const lat2 = toRadians(b.lat);
+  const deltaLat = toRadians(b.lat - a.lat);
+  const deltaLon = toRadians(b.lon - a.lon);
+  const sinLat = Math.sin(deltaLat / 2);
+  const sinLon = Math.sin(deltaLon / 2);
+  const haversine = (sinLat * sinLat)
+    + (Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon);
+  return 6371000 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
 function normalizePressure(value) {
   let pressure = toNumber(value);
   if (pressure != null && pressure > 2000) pressure /= 1000;
@@ -1468,13 +1507,14 @@ function buildMonitorSnapshot() {
   const lat = toNumber(row?.GPS_LATITUDE);
   const lon = toNumber(row?.GPS_LONGITUDE);
   const mapState = buildMapState(lat, lon);
-  const gpsFix = lat != null && lon != null;
+  const liveGpsPoint = mapState.hasFix ? getGpsPointFromRow(row) : null;
+  const gpsFix = mapState.hasFix;
   const gpsPoints = findRecentGpsPoints().map((point, pointIndex) => ({
     label: pointIndex === 0 ? "Point A" : "Point B",
     value: `${formatLatLon(point.lat, point.lon)} | ${point.time}`,
   }));
-  const displayLat = lat ?? mapState.pointB?.lat ?? null;
-  const displayLon = lon ?? mapState.pointB?.lon ?? null;
+  const displayLat = liveGpsPoint?.lat ?? mapState.pointB?.lat ?? null;
+  const displayLon = liveGpsPoint?.lon ?? mapState.pointB?.lon ?? null;
 
   return {
     updatedAt: new Date().toISOString(),
@@ -1496,7 +1536,7 @@ function buildMonitorSnapshot() {
       gpsSats: row?.GPS_SATS || "--",
     },
     quickChecks: {
-      telemetryLink: serialPort ? "ok" : "bad",
+      telemetryLink: getSerialLinkHealth(),
       loggingReady: data.length > 0 ? "ok" : "warn",
       simulationMode: getSimulationQuickCheckStatus(row),
       batteryOk: normalizeVoltage(row?.VOLTAGE) != null ? "ok" : "warn",
@@ -1512,8 +1552,8 @@ function buildMonitorSnapshot() {
     },
     gps: {
       fix: gpsFix,
-      latitude: lat,
-      longitude: lon,
+      latitude: liveGpsPoint?.lat ?? null,
+      longitude: liveGpsPoint?.lon ?? null,
       display: displayLat != null && displayLon != null
         ? `${formatLatLon(displayLat, displayLon)}${gpsFix ? "" : " (last known)"}`
         : "Waiting for GPS fix",
@@ -1612,6 +1652,14 @@ function initPhoneMonitor() {
 function setDot(dot, cls) {
   dot.classList.remove("dot--ok", "dot--warn", "dot--bad");
   dot.classList.add(cls);
+}
+
+function getSerialLinkHealth(now = Date.now()) {
+  if (!serialPort) return "bad";
+  if (!lastSerialByteAt) return "warn";
+  if (now - lastSerialByteAt > serialByteStaleMs) return "warn";
+  if (lastTelemetryRowAt && now - lastTelemetryRowAt > serialTelemetryStaleMs) return "warn";
+  return "ok";
 }
 
 function buildBaseGrid(svg, options = {}) {
@@ -1768,7 +1816,8 @@ function getCurrentMissionTimeSegmentRows(rows) {
 }
 
 function updateQuickChecks(row) {
-  setDot(elements.checkLink, serialPort ? "dot--ok" : "dot--bad");
+  const linkHealth = getSerialLinkHealth();
+  setDot(elements.checkLink, linkHealth === "ok" ? "dot--ok" : (linkHealth === "warn" ? "dot--warn" : "dot--bad"));
   setDot(elements.checkLog, data.length > 0 ? "dot--ok" : "dot--warn");
   setDot(elements.checkSim, getSimulationQuickCheckStatus(row) === "ok" ? "dot--ok" : "dot--bad");
   setDot(elements.checkBattery, normalizeVoltage(row.VOLTAGE) != null ? "dot--ok" : "dot--warn");
@@ -1780,16 +1829,17 @@ function findMapPathPoints() {
   let previousKey = "";
 
   for (let i = 0; i < visibleRows.length; i += 1) {
-    const row = visibleRows[i];
-    const lat = toNumber(row?.GPS_LATITUDE);
-    const lon = toNumber(row?.GPS_LONGITUDE);
-    if (lat == null || lon == null) continue;
+    const point = getGpsPointFromRow(visibleRows[i]);
+    if (!point) continue;
 
-    const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+    const previousPoint = points[points.length - 1] || null;
+    if (previousPoint && getDistanceMeters(previousPoint, point) > gpsMaxFieldJumpMeters) continue;
+
+    const key = `${point.lat.toFixed(5)},${point.lon.toFixed(5)}`;
     if (key === previousKey) continue;
     previousKey = key;
 
-    points.push({ lat, lon, time: row.MISSION_TIME || "--" });
+    points.push(point);
   }
 
   return points;
@@ -1802,8 +1852,11 @@ function findGpsTrailPoints(limit = mapTrailLimit) {
 }
 
 function findRecentGpsPoints() {
-  const trailPoints = findGpsTrailPoints(2);
-  return trailPoints.length ? trailPoints : [];
+  const pathPoints = findMapPathPoints();
+  if (!pathPoints.length) return [];
+  const firstPoint = pathPoints[0];
+  const lastPoint = pathPoints[pathPoints.length - 1];
+  return firstPoint === lastPoint ? [firstPoint] : [firstPoint, lastPoint];
 }
 
 function clampMapLatitude(lat) {
@@ -1904,9 +1957,13 @@ function buildMapTileMarkup(focusPoint, viewWidthMeters, viewHeightMeters) {
 function buildMapState(lat, lon) {
   const pathPoints = findMapPathPoints();
   const lastTrailPoint = pathPoints[pathPoints.length - 1] || null;
-  const focusPoint = lat != null && lon != null
+  let livePoint = isGpsCoordinateInRange(lat, lon)
     ? { lat, lon, time: rowAt(index)?.MISSION_TIME || "--" }
-    : lastTrailPoint;
+    : null;
+  if (livePoint && lastTrailPoint && getDistanceMeters(lastTrailPoint, livePoint) > gpsMaxFieldJumpMeters) {
+    livePoint = null;
+  }
+  const focusPoint = livePoint || lastTrailPoint;
 
   if (!focusPoint) {
     return {
@@ -1949,15 +2006,26 @@ function buildMapState(lat, lon) {
     };
   });
   const polylinePoints = projected.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
-  const startPoint = projected[0];
+  const missionStartPoint = pathPoints[0] || points[0] || focusPoint;
+  const projectedMissionStart = projectMapPoint(
+    missionStartPoint.lat,
+    missionStartPoint.lon,
+    tileLayer.focusWorldPixel,
+    tileLayer.zoom,
+    tileLayer.pixelScale
+  );
+  const startPoint = {
+    ...missionStartPoint,
+    x: projectedMissionStart.x,
+    y: projectedMissionStart.y,
+  };
   const currentPoint = projected.find((point) => `${point.lat.toFixed(5)},${point.lon.toFixed(5)}` === focusKey)
     || projected[projected.length - 1];
-  const recentPoints = points.slice(-2);
-  const pointA = recentPoints[0] || focusPoint;
-  const pointB = recentPoints[1] || pointA;
-  const status = lat != null && lon != null
+  const pointA = missionStartPoint;
+  const pointB = currentPoint || pointA;
+  const status = livePoint
     ? (projected.length > 1 ? `Following CanSat | Trail ${projected.length} pts` : "Following CanSat")
-    : "GPS temporarily unavailable | Showing last route";
+    : "GPS unavailable | Last route";
 
   const trailMarkup = projected.length
     ? `
@@ -1987,7 +2055,7 @@ function buildMapState(lat, lon) {
     trailMarkup,
     pointA,
     pointB,
-    hasFix: lat != null && lon != null,
+    hasFix: Boolean(livePoint),
     status,
   };
 }
@@ -2244,9 +2312,7 @@ function isValidTelemetryRow(row) {
 }
 
 function hasGpsCoordinates(row) {
-  const lat = toNumber(row?.GPS_LATITUDE);
-  const lon = toNumber(row?.GPS_LONGITUDE);
-  return lat != null && lon != null && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+  return Boolean(getGpsPointFromRow(row));
 }
 
 function splitPacketTokens(line) {
@@ -2478,6 +2544,7 @@ function handleSerialLine(line) {
   }
   badLineStreak = 0;
   serialValidLineCount += 1;
+  lastTelemetryRowAt = Date.now();
   pushSerialPreview("ROW>", sanitizePreviewText(clean));
   setSerialDebugHint("Valid telemetry rows received.");
   if (row.TEAM_ID) lastKnownTeamId = String(row.TEAM_ID).trim();
@@ -2494,6 +2561,8 @@ function handleSerialChunk(payload) {
   const chunk = normalizeSerialPayload(payload);
   if (!chunk.text && !chunk.byteLength) return;
 
+  lastSerialByteAt = Date.now();
+  if (payload?.rawLogPath) currentRawLogPath = payload.rawLogPath;
   serialByteCount += chunk.byteLength || chunk.text.length;
 
   if (chunk.bytes.length && !isMostlyPrintableBytes(chunk.bytes)) {
@@ -2522,6 +2591,29 @@ function handleSerialChunk(payload) {
   const lines = serialBuffer.split(/\r\n|\n|\r/);
   serialBuffer = lines.pop() ?? "";
   lines.forEach(handleSerialLine);
+}
+
+function runSerialWatchdog() {
+  if (!serialPort) return;
+
+  const now = Date.now();
+  const msSinceByte = lastSerialByteAt ? now - lastSerialByteAt : Infinity;
+  const msSinceRow = lastTelemetryRowAt ? now - lastTelemetryRowAt : Infinity;
+
+  if (msSinceByte > serialByteStaleMs) {
+    setDot(elements.checkLink, "dot--warn");
+    elements.sourceLabel.textContent = `Source: ${serialPort.path} @ ${currentBaudRate} (no bytes)`;
+    elements.cmdEcho.textContent = `No serial bytes for ${Math.round(msSinceByte / 1000)}s. Raw log: ${currentRawLogPath || "not available"}`;
+    publishMonitorSnapshot();
+    return;
+  }
+
+  if (lastTelemetryRowAt && msSinceRow > serialTelemetryStaleMs) {
+    setDot(elements.checkLink, "dot--warn");
+    elements.sourceLabel.textContent = `Source: ${serialPort.path} @ ${currentBaudRate} (no valid rows)`;
+    elements.cmdEcho.textContent = `Bytes are arriving, but no valid telemetry rows for ${Math.round(msSinceRow / 1000)}s.`;
+    publishMonitorSnapshot();
+  }
 }
 
 function renderPortOptions() {
@@ -2567,6 +2659,9 @@ async function refreshPorts() {
 async function disconnectSerial(updateSource = true) {
   const hadConnection = Boolean(serialPort);
   serialPort = null;
+  currentRawLogPath = "";
+  lastSerialByteAt = 0;
+  lastTelemetryRowAt = 0;
   resetSerialDiagnostics();
 
   if (serialApi && hadConnection) {
@@ -2614,6 +2709,9 @@ async function connectSerial() {
       manufacturer: "",
     };
     currentBaudRate = connection.baudRate || selectedBaudRate;
+    currentRawLogPath = connection.rawLogPath || "";
+    lastSerialByteAt = Date.now();
+    lastTelemetryRowAt = 0;
     serialHeaders = null;
     badLineStreak = 0;
     resetSerialDiagnostics();
@@ -2628,6 +2726,9 @@ async function connectSerial() {
     elements.portSelect.disabled = true;
     elements.refreshPortsBtn.disabled = true;
     elements.sourceLabel.textContent = `Source: ${connection.path} @ ${currentBaudRate} (waiting data)`;
+    elements.cmdEcho.textContent = currentRawLogPath
+      ? `Connected. Raw log: ${currentRawLogPath}`
+      : `Connected to ${connection.path} @ ${currentBaudRate}`;
     updateQuickChecks(rowAt(index) || {});
     publishMonitorSnapshot();
   } catch (error) {
@@ -2825,6 +2926,7 @@ document.querySelectorAll("[data-cmd]").forEach((btn) => {
 });
 
 if (serialApi) {
+  window.setInterval(runSerialWatchdog, serialWatchdogIntervalMs);
   serialApi.onData(handleSerialChunk);
   serialApi.onClose(async () => {
     if (suppressCloseEvent) return;

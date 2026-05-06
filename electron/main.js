@@ -31,6 +31,8 @@ let monitorUsesFallbackPort = false;
 let remoteMonitorToken = "";
 let mainWindow = null;
 let activeSerialPort = null;
+let activeSerialRawLog = null;
+let activeSerialRawLogPath = "";
 let monitorSnapshot = buildDefaultMonitorSnapshot();
 const monitorClients = new Set();
 let isQuitting = false;
@@ -372,9 +374,35 @@ function closePort(port) {
   });
 }
 
+function createSerialRawLog(portPath) {
+  const logsDir = path.join(projectRoot, "logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safePort = String(portPath || "serial").replace(/[^a-z0-9_-]+/gi, "_");
+  const logPath = path.join(logsDir, `raw-serial-${safePort}-${timestamp}.log`);
+  return {
+    logPath,
+    stream: fs.createWriteStream(logPath, { flags: "a" }),
+  };
+}
+
+function closeSerialRawLog() {
+  return new Promise((resolve) => {
+    const stream = activeSerialRawLog;
+    activeSerialRawLog = null;
+    activeSerialRawLogPath = "";
+    if (!stream) {
+      resolve();
+      return;
+    }
+    stream.end(resolve);
+  });
+}
+
 async function closeActiveSerialPort() {
   const port = activeSerialPort;
   activeSerialPort = null;
+  await closeSerialRawLog();
   await closePort(port);
 }
 
@@ -522,12 +550,18 @@ ipcMain.handle("serial:connect", async (_, portPath, baudRate) => {
     });
   });
 
+  const rawLog = createSerialRawLog(portPath);
+  activeSerialRawLog = rawLog.stream;
+  activeSerialRawLogPath = rawLog.logPath;
+
   port.on("data", (chunk) => {
     const buffer = Buffer.from(chunk);
+    activeSerialRawLog?.write(buffer);
     emitToRenderer("serial:data", {
       text: buffer.toString("latin1"),
       byteLength: buffer.length,
       bytes: Array.from(buffer),
+      rawLogPath: activeSerialRawLogPath,
     });
   });
 
@@ -538,12 +572,13 @@ ipcMain.handle("serial:connect", async (_, portPath, baudRate) => {
   port.on("close", () => {
     if (activeSerialPort === port) {
       activeSerialPort = null;
+      closeSerialRawLog();
     }
     emitToRenderer("serial:close", portPath);
   });
 
   activeSerialPort = port;
-  return { path: portPath, baudRate: selectedBaudRate };
+  return { path: portPath, baudRate: selectedBaudRate, rawLogPath: activeSerialRawLogPath };
 });
 
 ipcMain.handle("serial:disconnect", async () => {
