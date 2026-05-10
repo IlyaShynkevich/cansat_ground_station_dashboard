@@ -23,6 +23,7 @@ const mimeTypes = {
   ".svg": "image/svg+xml",
 };
 const preferredMonitorPort = 63668;
+const telemetryArchivePath = path.join(projectRoot, "logs", "telemetry-archive.csv");
 
 let localOrigin = "";
 let staticPort = 0;
@@ -31,8 +32,6 @@ let monitorUsesFallbackPort = false;
 let remoteMonitorToken = "";
 let mainWindow = null;
 let activeSerialPort = null;
-let activeSerialRawLog = null;
-let activeSerialRawLogPath = "";
 let monitorSnapshot = buildDefaultMonitorSnapshot();
 const monitorClients = new Set();
 let isQuitting = false;
@@ -374,35 +373,35 @@ function closePort(port) {
   });
 }
 
-function createSerialRawLog(portPath) {
-  const logsDir = path.join(projectRoot, "logs");
-  fs.mkdirSync(logsDir, { recursive: true });
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const safePort = String(portPath || "serial").replace(/[^a-z0-9_-]+/gi, "_");
-  const logPath = path.join(logsDir, `raw-serial-${safePort}-${timestamp}.log`);
-  return {
-    logPath,
-    stream: fs.createWriteStream(logPath, { flags: "a" }),
-  };
+function csvEscape(value) {
+  const text = String(value ?? "");
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
 }
 
-function closeSerialRawLog() {
-  return new Promise((resolve) => {
-    const stream = activeSerialRawLog;
-    activeSerialRawLog = null;
-    activeSerialRawLogPath = "";
-    if (!stream) {
-      resolve();
-      return;
-    }
-    stream.end(resolve);
-  });
+function ensureTelemetryArchive(headers) {
+  fs.mkdirSync(path.dirname(telemetryArchivePath), { recursive: true });
+  if (fs.existsSync(telemetryArchivePath) && fs.statSync(telemetryArchivePath).size > 0) {
+    return;
+  }
+  fs.appendFileSync(telemetryArchivePath, `${headers.map(csvEscape).join(",")}\n`, "utf8");
+}
+
+function appendTelemetryArchiveRows(headers, rows) {
+  const safeHeaders = Array.isArray(headers) ? headers.map((header) => String(header)) : [];
+  const safeRows = Array.isArray(rows) ? rows : [];
+  if (!safeHeaders.length || !safeRows.length) return { path: telemetryArchivePath, rowsWritten: 0 };
+
+  ensureTelemetryArchive(safeHeaders);
+  const lines = safeRows.map((row) => (
+    safeHeaders.map((header) => csvEscape(row?.[header] ?? "")).join(",")
+  ));
+  fs.appendFileSync(telemetryArchivePath, `${lines.join("\n")}\n`, "utf8");
+  return { path: telemetryArchivePath, rowsWritten: safeRows.length };
 }
 
 async function closeActiveSerialPort() {
   const port = activeSerialPort;
   activeSerialPort = null;
-  await closeSerialRawLog();
   await closePort(port);
 }
 
@@ -550,18 +549,12 @@ ipcMain.handle("serial:connect", async (_, portPath, baudRate) => {
     });
   });
 
-  const rawLog = createSerialRawLog(portPath);
-  activeSerialRawLog = rawLog.stream;
-  activeSerialRawLogPath = rawLog.logPath;
-
   port.on("data", (chunk) => {
     const buffer = Buffer.from(chunk);
-    activeSerialRawLog?.write(buffer);
     emitToRenderer("serial:data", {
       text: buffer.toString("latin1"),
       byteLength: buffer.length,
       bytes: Array.from(buffer),
-      rawLogPath: activeSerialRawLogPath,
     });
   });
 
@@ -572,13 +565,12 @@ ipcMain.handle("serial:connect", async (_, portPath, baudRate) => {
   port.on("close", () => {
     if (activeSerialPort === port) {
       activeSerialPort = null;
-      closeSerialRawLog();
     }
     emitToRenderer("serial:close", portPath);
   });
 
   activeSerialPort = port;
-  return { path: portPath, baudRate: selectedBaudRate, rawLogPath: activeSerialRawLogPath };
+  return { path: portPath, baudRate: selectedBaudRate };
 });
 
 ipcMain.handle("serial:disconnect", async () => {
@@ -608,6 +600,14 @@ ipcMain.handle("serial:write", async (_, payload) => {
 });
 
 ipcMain.handle("monitor:get-info", async () => getMonitorInfo());
+
+ipcMain.handle("telemetry-log:append-row", async (_, headers, row) => (
+  appendTelemetryArchiveRows(headers, [row])
+));
+
+ipcMain.handle("telemetry-log:save-snapshot", async (_, headers, rows) => (
+  appendTelemetryArchiveRows(headers, rows)
+));
 
 ipcMain.handle("app:quit", async () => {
   isQuitting = true;

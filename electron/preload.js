@@ -38,3 +38,12 @@ contextBridge.exposeInMainWorld("electronApp", {
     return ipcRenderer.invoke("app:quit");
   },
 });
+
+contextBridge.exposeInMainWorld("electronTelemetryLog", {
+  appendRow(headers, row, options) {
+    return ipcRenderer.invoke("telemetry-log:append-row", headers, row, options);
+  },
+  saveSnapshot(headers, rows, options) {
+    return ipcRenderer.invoke("telemetry-log:save-snapshot", headers, rows, options);
+  },
+});

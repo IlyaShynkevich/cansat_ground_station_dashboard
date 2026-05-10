@@ -172,7 +172,6 @@ let availablePorts = [];
 let suppressCloseEvent = false;
 let lastSentCommand = "--";
 let lastMapEmbedUrl = "";
-let currentRawLogPath = "";
 let lastSerialByteAt = 0;
 let lastTelemetryRowAt = 0;
 let currentBaudRate = 57600;
@@ -211,6 +210,7 @@ const earthEquatorMeters = 40075016.686;
 const serialApi = window.electronSerial || null;
 const monitorApi = window.electronMonitor || null;
 const appApi = window.electronApp || null;
+const telemetryLogApi = window.electronTelemetryLog || null;
 const phoneMonitorRefreshMs = 5000;
 const serialByteStaleMs = 5000;
 const serialTelemetryStaleMs = 8000;
@@ -1139,6 +1139,20 @@ function csvEscape(value) {
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
 }
 
+function archiveTelemetryRows(rows) {
+  if (!telemetryLogApi?.saveSnapshot || !Array.isArray(rows) || rows.length === 0) return;
+  telemetryLogApi.saveSnapshot(serialDefaultHeaders, rows).catch((error) => {
+    console.error("Telemetry archive save failed", error);
+  });
+}
+
+function archiveTelemetryRow(row) {
+  if (!telemetryLogApi?.appendRow || !row) return;
+  telemetryLogApi.appendRow(serialDefaultHeaders, row).catch((error) => {
+    console.error("Telemetry archive append failed", error);
+  });
+}
+
 const telemetryUnits = {
   ALTITUDE: "m",
   TEMPERATURE: "C",
@@ -1341,6 +1355,7 @@ function applyLocalSimulationPressure(pressureInput) {
   const row = buildLocalSimulationPressureRow(pressureInput);
   row._SEQ = String(data.length);
   data.push(row);
+  archiveTelemetryRow(row);
   index = data.length - 1;
   lastSentCommand = `SIMP ${pressureInput.pa}`;
   elements.sourceLabel.textContent = "Source: SIM manual";
@@ -1422,6 +1437,7 @@ function activateSimulationProfile() {
   simulationArmed = false;
   simulationActive = true;
   data = buildSimulationPlaybackRows(simulationRows).map((row, rowIndex) => ({ ...row, _SEQ: String(rowIndex) }));
+  archiveTelemetryRows(data);
   index = 0;
   lastSentCommand = "SIM ACTIVATE";
   elements.sourceLabel.textContent = simulationFileName
@@ -2643,6 +2659,7 @@ function handleSerialLine(line) {
   if (row.TEAM_ID) lastKnownTeamId = String(row.TEAM_ID).trim();
   row._SEQ = String(data.length);
   data.push(row);
+  archiveTelemetryRow(row);
   index = data.length - 1;
   if (data.length === 1) {
     elements.sourceLabel.textContent = `Source: ${serialPort?.path || "Link"} @ ${currentBaudRate}`;
@@ -2655,7 +2672,6 @@ function handleSerialChunk(payload) {
   if (!chunk.text && !chunk.byteLength) return;
 
   lastSerialByteAt = Date.now();
-  if (payload?.rawLogPath) currentRawLogPath = payload.rawLogPath;
   serialByteCount += chunk.byteLength || chunk.text.length;
 
   if (chunk.bytes.length && !isMostlyPrintableBytes(chunk.bytes)) {
@@ -2696,7 +2712,7 @@ function runSerialWatchdog() {
   if (msSinceByte > serialByteStaleMs) {
     setDot(elements.checkLink, "dot--warn");
     elements.sourceLabel.textContent = `Source: ${serialPort.path} @ ${currentBaudRate} (no bytes)`;
-    elements.cmdEcho.textContent = `No serial bytes for ${Math.round(msSinceByte / 1000)}s. Raw log: ${currentRawLogPath || "not available"}`;
+    elements.cmdEcho.textContent = `No serial bytes for ${Math.round(msSinceByte / 1000)}s. Telemetry archive saves parsed rows only.`;
     publishMonitorSnapshot();
     return;
   }
@@ -2752,7 +2768,6 @@ async function refreshPorts() {
 async function disconnectSerial(updateSource = true) {
   const hadConnection = Boolean(serialPort);
   serialPort = null;
-  currentRawLogPath = "";
   lastSerialByteAt = 0;
   lastTelemetryRowAt = 0;
   resetSerialDiagnostics();
@@ -2803,7 +2818,6 @@ async function connectSerial() {
       manufacturer: "",
     };
     currentBaudRate = connection.baudRate || selectedBaudRate;
-    currentRawLogPath = connection.rawLogPath || "";
     lastSerialByteAt = Date.now();
     lastTelemetryRowAt = 0;
     serialHeaders = null;
@@ -2821,9 +2835,7 @@ async function connectSerial() {
     elements.portSelect.disabled = true;
     elements.refreshPortsBtn.disabled = true;
     elements.sourceLabel.textContent = `Source: ${connection.path} @ ${currentBaudRate} (waiting data)`;
-    elements.cmdEcho.textContent = currentRawLogPath
-      ? `Connected. Raw log: ${currentRawLogPath}`
-      : `Connected to ${connection.path} @ ${currentBaudRate}`;
+    elements.cmdEcho.textContent = `Connected to ${connection.path} @ ${currentBaudRate}`;
     updateQuickChecks(rowAt(index) || {});
     publishMonitorSnapshot();
   } catch (error) {
