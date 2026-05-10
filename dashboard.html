@@ -24,19 +24,14 @@
       <input id="simCsvInput" type="file" accept=".csv,.txt,text/csv,text/plain" hidden />
       <button class="btn btn--ghost btn--compact" type="button" id="loadDefaultSimBtn">Load CanSat Test</button>
       <button class="btn btn--ghost btn--compact" type="button" id="exportLogBtn">Export Log</button>
-      <select id="baudSelect" class="select select--compact" aria-label="Serial baud rate">
-        <option value="9600">9600 baud</option>
-        <option value="19200">19200 baud</option>
-        <option value="38400">38400 baud</option>
-        <option value="57600">57600 baud</option>
-        <option value="115200" selected>115200 baud</option>
-      </select>
+      <input id="baudSelect" type="hidden" value="57600" />
       <select id="portSelect" class="select select--compact select--port" aria-label="Serial COM port">
         <option value="">Select COM port</option>
       </select>
       <button class="btn btn--ghost btn--compact" type="button" id="refreshPortsBtn">Refresh Ports</button>
       <button class="btn btn--compact" type="button" id="connectBtn">Connect Link</button>
       <button class="btn btn--ghost btn--compact" type="button" id="disconnectBtn" disabled>Disconnect</button>
+      <button class="btn btn--danger btn--compact" type="button" id="quitAppBtn">End Task</button>
       <div class="pill" id="sourceLabel">Source: Demo</div>
     </div>
   </header>
@@ -109,7 +104,10 @@
           <h3 class="panel__subtitle">Link Debug</h3>
           <div class="serial-debug">
             <div class="serial-debug__status" id="serialDebugStatus">No serial traffic yet.</div>
-            <pre class="serial-debug__preview" id="serialDebugPreview">Waiting for serial data...</pre>
+            <pre class="serial-debug__preview" id="serialDebugPreview">Waiting for serial data...
+
+Expected first line:
+BOOT,1049,I2C=OK,BMP=OK,BNO=OK,INA=OK,GPS=OK,SERVO=OK,STATE=LAUNCH_PAD</pre>
           </div>
         </section>
 

@@ -173,6 +173,21 @@ body {
   color: var(--accent);
 }
 .badge--muted { border-color: var(--border); }
+.badge--ok {
+  border-color: rgba(15, 157, 88, 0.32);
+  background: linear-gradient(180deg, #ffffff 0%, #ebfbf3 100%);
+  color: var(--ok);
+}
+.badge--warn {
+  border-color: rgba(197, 127, 0, 0.34);
+  background: linear-gradient(180deg, #ffffff 0%, #fff6dd 100%);
+  color: var(--warn);
+}
+.badge--bad {
+  border-color: rgba(199, 43, 43, 0.34);
+  background: linear-gradient(180deg, #ffffff 0%, #fff0f0 100%);
+  color: var(--bad);
+}
 
 .select {
   border: 2px solid var(--border);
@@ -210,6 +225,14 @@ body {
   opacity: 0.58;
 }
 .btn--ghost { border-color: rgba(15, 106, 158, 0.2); color: var(--muted); }
+.btn--danger {
+  border-color: rgba(199, 43, 43, 0.72);
+  color: var(--bad);
+  background: linear-gradient(180deg, #ffffff 0%, #fff0f0 100%);
+}
+.btn--danger:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #ffe2e2 100%);
+}
 .cmd {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -479,8 +502,8 @@ body {
 
 .serial-debug__preview {
   margin: 0;
-  min-height: 210px;
-  max-height: 224px;
+  min-height: 219px;
+  max-height: 234px;
   overflow: auto;
   padding: 5px;
   border: 2px dashed var(--border);

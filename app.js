@@ -38,6 +38,7 @@ const elements = {
   checkBattery: document.getElementById("checkBattery"),
   connectBtn: document.getElementById("connectBtn"),
   disconnectBtn: document.getElementById("disconnectBtn"),
+  quitAppBtn: document.getElementById("quitAppBtn"),
   baudSelect: document.getElementById("baudSelect"),
   portSelect: document.getElementById("portSelect"),
   refreshPortsBtn: document.getElementById("refreshPortsBtn"),
@@ -139,6 +140,7 @@ const outboundCommandMap = Object.freeze({
   "CX ON": "CX ON",
   "CX OFF": "CX OFF",
 });
+const bootAckHardwareKeys = Object.freeze(["I2C", "BMP", "BNO", "INA", "GPS", "SERVO"]);
 const defaultCommandTeamId = "1049";
 const serialFixedTelemetryFieldCount = serialDefaultHeaders.length - 1;
 
@@ -161,6 +163,7 @@ let serialInvalidLineCount = 0;
 let serialBinaryChunkCount = 0;
 let serialPreviewEntries = [];
 let serialDebugHint = "No serial traffic yet.";
+let bootAck = null;
 let scheduledUiUpdateTimer = null;
 let scheduledUiUpdatePending = false;
 let lastLiveTelemetryUiUpdateAt = 0;
@@ -172,12 +175,12 @@ let lastMapEmbedUrl = "";
 let currentRawLogPath = "";
 let lastSerialByteAt = 0;
 let lastTelemetryRowAt = 0;
-let currentBaudRate = 115200;
+let currentBaudRate = 57600;
 let lastKnownTeamId = defaultCommandTeamId;
 let mapZoomScale = 1.7;
 
 const tailSize = 80;
-const defaultBaudRate = 115200;
+const defaultBaudRate = 57600;
 const simulationFallbackDelayMs = 1000;
 const simulationMinDelayMs = 150;
 const simulationMaxDelayMs = 2000;
@@ -186,6 +189,12 @@ const defaultSimulationProfilePath = "./docs/cansat_2023_simp.txt";
 const liveTelemetryUiIntervalMs = 1000;
 const serialPreviewLimit = 8;
 const serialPreviewTextLimit = 140;
+const serialEmptyPreviewText = [
+  "Waiting for serial data...",
+  "",
+  "Expected first line:",
+  "BOOT,1049,I2C=OK,BMP=OK,BNO=OK,INA=OK,GPS=OK,SERVO=OK,STATE=LAUNCH_PAD",
+].join("\n");
 const mapTrailLimit = 48;
 const mapFollowViewWidthMeters = 900;
 const mapFollowViewHeightMeters = 650;
@@ -201,6 +210,7 @@ const gpsMaxFieldJumpMeters = 2000;
 const earthEquatorMeters = 40075016.686;
 const serialApi = window.electronSerial || null;
 const monitorApi = window.electronMonitor || null;
+const appApi = window.electronApp || null;
 const phoneMonitorRefreshMs = 5000;
 const serialByteStaleMs = 5000;
 const serialTelemetryStaleMs = 8000;
@@ -900,7 +910,7 @@ function updateSerialDebugPanel() {
   elements.serialDebugStatus.textContent = `${serialByteCount} bytes | ${serialValidLineCount} valid rows | ${serialInvalidLineCount} invalid rows | ${currentBaudRate} baud${binaryPart} | ${serialDebugHint}`;
   elements.serialDebugPreview.textContent = serialPreviewEntries.length
     ? serialPreviewEntries.join("\n")
-    : "Waiting for serial data...";
+    : serialEmptyPreviewText;
 }
 
 function setSerialDebugHint(hint) {
@@ -929,6 +939,15 @@ function resetSerialDiagnostics() {
   serialPreviewEntries = [];
   serialDebugHint = "No serial traffic yet.";
   updateSerialDebugPanel();
+}
+
+function getBootAckStatus() {
+  if (!bootAck) return "waiting";
+  return bootAck.failures.length ? "fail" : "ready";
+}
+
+function resetBootAck() {
+  bootAck = null;
 }
 
 function getSelectedBaudRate() {
@@ -1537,10 +1556,19 @@ function buildMonitorSnapshot() {
     },
     quickChecks: {
       telemetryLink: getSerialLinkHealth(),
+      bootReady: getBootAckStatus(),
       loggingReady: data.length > 0 ? "ok" : "warn",
       simulationMode: getSimulationQuickCheckStatus(row),
       batteryOk: normalizeVoltage(row?.VOLTAGE) != null ? "ok" : "warn",
     },
+    boot: bootAck ? {
+      teamId: bootAck.teamId,
+      state: bootAck.state,
+      status: getBootAckStatus(),
+      fields: { ...bootAck.fields },
+      failures: [...bootAck.failures],
+      receivedAt: bootAck.receivedAt,
+    } : null,
     metrics: {
       altitude: formatNum(toNumber(row?.ALTITUDE), 1),
       temperature: formatNum(toNumber(row?.TEMPERATURE), 1),
@@ -2387,6 +2415,50 @@ function parseAckPacket(line) {
   };
 }
 
+function parseBootPacket(line) {
+  const cols = parseCsvLine(line);
+  if (cols.length < 3) return null;
+
+  const kind = String(cols[0] ?? "").trim().toUpperCase();
+  if (kind !== "BOOT") return null;
+
+  const fields = {};
+  for (const token of cols.slice(2)) {
+    const match = String(token ?? "").trim().match(/^([A-Za-z][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (!match) continue;
+    fields[match[1].trim().toUpperCase()] = match[2].trim();
+  }
+
+  const failures = bootAckHardwareKeys.filter((key) => String(fields[key] || "").trim().toUpperCase() === "FAIL");
+  return {
+    kind,
+    teamId: String(cols[1] ?? "").trim(),
+    fields,
+    failures,
+    state: fields.STATE || "",
+    raw: line,
+    receivedAt: Date.now(),
+  };
+}
+
+function handleBootPacket(line) {
+  const packet = parseBootPacket(line);
+  if (!packet) return false;
+
+  bootAck = packet;
+  if (packet.teamId) lastKnownTeamId = packet.teamId;
+  pushSerialPreview("BOOT>", sanitizePreviewText(line));
+  if (packet.failures.length) {
+    elements.cmdEcho.textContent = `BOOT check: ${packet.failures.join(", ")} FAIL`;
+    setSerialDebugHint("BOOT acknowledgement received with hardware failures.");
+  } else {
+    elements.cmdEcho.textContent = `BOOT ready: ${packet.state || "state restored"}`;
+    setSerialDebugHint("BOOT acknowledgement received. CX ON is ready.");
+  }
+  publishMonitorSnapshot();
+  return true;
+}
+
 function handleAckPacket(line) {
   const ack = parseAckPacket(line);
   if (!ack) return false;
@@ -2405,8 +2477,20 @@ function handleAckPacket(line) {
 }
 
 function takeInlineAckPacket(buffer) {
-  const match = buffer.match(/^(ACK|NACK|ERR|ERROR),([^,\r\n]+),([^,\r\n]+?)(?=(ACK|NACK|ERR|ERROR),|\d+,\d{2}:\d{2}:\d{2},\d+,|$)/i);
+  const match = buffer.match(/^(ACK|NACK|ERR|ERROR),([^,\r\n]+),([^,\r\n]+?)(?=(ACK|NACK|ERR|ERROR|BOOT),|\d+,\d{2}:\d{2}:\d{2},\d+,|$)/i);
   return match ? match[0] : null;
+}
+
+function takeInlineBootPacket(buffer) {
+  const text = "[^,\\r\\n]+";
+  const field = "[A-Za-z][A-Za-z0-9_]*=[^,\\r\\n]+";
+  const pattern = new RegExp(
+    `^(BOOT,${text}(?:,${field})+?)(?=(?:ACK|NACK|ERR|ERROR|BOOT),|\\d+,\\d{2}:\\d{2}:\\d{2},\\d+,|$)`,
+    "i"
+  );
+  const match = buffer.match(pattern);
+  if (!match || !/,STATE\s*=/i.test(match[1])) return null;
+  return match[1];
 }
 
 function takeInlineTelemetryPacket(buffer) {
@@ -2429,6 +2513,14 @@ function consumeInlineStructuredPackets() {
     const trimmed = serialBuffer.replace(/^\s+/, "");
     if (trimmed !== serialBuffer) {
       serialBuffer = trimmed;
+      continue;
+    }
+
+    const bootPacket = takeInlineBootPacket(serialBuffer);
+    if (bootPacket) {
+      handleBootPacket(bootPacket);
+      serialBuffer = serialBuffer.slice(bootPacket.length);
+      consumedAny = true;
       continue;
     }
 
@@ -2529,6 +2621,7 @@ function parseSerialRow(line) {
 function handleSerialLine(line) {
   const clean = line.trim();
   if (!clean) return;
+  if (handleBootPacket(clean)) return;
   if (handleAckPacket(clean)) return;
   const row = parseSerialRow(clean);
   if (!row) {
@@ -2663,6 +2756,7 @@ async function disconnectSerial(updateSource = true) {
   lastSerialByteAt = 0;
   lastTelemetryRowAt = 0;
   resetSerialDiagnostics();
+  resetBootAck();
 
   if (serialApi && hadConnection) {
     suppressCloseEvent = true;
@@ -2715,10 +2809,11 @@ async function connectSerial() {
     serialHeaders = null;
     badLineStreak = 0;
     resetSerialDiagnostics();
+    resetBootAck();
     data = [];
     index = 0;
     clearUi();
-    setSerialDebugHint("Listening for telemetry. If the link stays silent, try 9600 baud for XBee defaults.");
+    setSerialDebugHint("Listening for BOOT acknowledgement and telemetry at 57600 baud.");
 
     elements.connectBtn.disabled = true;
     elements.disconnectBtn.disabled = false;
@@ -2763,6 +2858,27 @@ async function sendCommand(cmd) {
     lastSentCommand = outbound.display;
     elements.cmdSent.textContent = outbound.display;
     elements.cmdEcho.textContent = `${outbound.payload.trim()} (send failed)`;
+    publishMonitorSnapshot();
+  }
+}
+
+async function quitGroundStation() {
+  elements.quitAppBtn.disabled = true;
+  elements.sourceLabel.textContent = "Source: Closing ground station";
+  elements.cmdEcho.textContent = "Closing app and releasing serial link";
+  publishMonitorSnapshot();
+
+  try {
+    if (appApi?.quit) {
+      await appApi.quit();
+      return;
+    }
+    window.close();
+  } catch (error) {
+    console.error(error);
+    elements.quitAppBtn.disabled = false;
+    elements.sourceLabel.textContent = "Source: Close failed";
+    elements.cmdEcho.textContent = `Close failed: ${error?.message || error}`;
     publishMonitorSnapshot();
   }
 }
@@ -2890,6 +3006,7 @@ async function loadBundledSimulationProfile() {
 
 elements.connectBtn.addEventListener("click", connectSerial);
 elements.disconnectBtn.addEventListener("click", () => disconnectSerial());
+elements.quitAppBtn?.addEventListener("click", quitGroundStation);
 elements.baudSelect.addEventListener("change", () => {
   if (!serialPort) currentBaudRate = getSelectedBaudRate();
   updateSerialDebugPanel();
@@ -3192,6 +3309,7 @@ async function initImu3D() {
 
 currentBaudRate = getSelectedBaudRate();
 resetSerialDiagnostics();
+resetBootAck();
 clearUi();
 updateMapZoomControls();
 initPhoneMonitor();

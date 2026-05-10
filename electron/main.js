@@ -609,6 +609,14 @@ ipcMain.handle("serial:write", async (_, payload) => {
 
 ipcMain.handle("monitor:get-info", async () => getMonitorInfo());
 
+ipcMain.handle("app:quit", async () => {
+  isQuitting = true;
+  await cleanupBeforeQuit();
+  didCleanupBeforeQuit = true;
+  app.exit(0);
+  return true;
+});
+
 ipcMain.on("monitor:publish", (_, snapshot) => {
   monitorSnapshot = sanitizeMonitorSnapshot(snapshot);
   broadcastMonitorSnapshot();

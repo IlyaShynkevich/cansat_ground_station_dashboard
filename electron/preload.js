@@ -32,3 +32,9 @@ contextBridge.exposeInMainWorld("electronMonitor", {
     ipcRenderer.send("monitor:publish", snapshot);
   },
 });
+
+contextBridge.exposeInMainWorld("electronApp", {
+  quit() {
+    return ipcRenderer.invoke("app:quit");
+  },
+});
