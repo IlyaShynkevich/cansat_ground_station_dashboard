@@ -40,7 +40,7 @@ body {
     linear-gradient(180deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
     linear-gradient(135deg, #07111a 0%, #102636 48%, #090d14 100%);
   background-size: 46px 46px, 46px 46px, auto;
-  transition: opacity 480ms ease, visibility 480ms ease;
+  transition: opacity 900ms ease, visibility 900ms ease;
 }
 
 .boot-screen::before {
@@ -139,26 +139,6 @@ body {
   background: #102636;
 }
 
-.boot-screen__progress {
-  position: relative;
-  width: min(68vw, 290px);
-  height: 4px;
-  margin-top: 22px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(247, 251, 255, 0.18);
-}
-
-.boot-screen__progress::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 46%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, transparent 0%, #7fddff 42%, #f3a000 100%);
-  animation: bootProgress 1250ms ease-in-out infinite;
-}
-
 @keyframes bootAvatar {
   from {
     opacity: 0;
@@ -168,11 +148,6 @@ body {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
-}
-
-@keyframes bootProgress {
-  from { transform: translateX(-110%); }
-  to { transform: translateX(230%); }
 }
 
 @keyframes bootScan {
@@ -187,14 +162,9 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .boot-screen,
   .boot-screen::before,
-  .boot-screen__avatar,
-  .boot-screen__progress::before {
+  .boot-screen__avatar {
     animation: none;
     transition: none;
-  }
-
-  .boot-screen__progress::before {
-    width: 100%;
   }
 }
 
