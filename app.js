@@ -4,7 +4,7 @@ function initBootScreen() {
   if (!bootScreen) return;
 
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-  const minimumVisibleMs = reduceMotion ? 2400 : 22500;
+  const minimumVisibleMs = reduceMotion ? 650 : 2600;
   const fadeMs = reduceMotion ? 0 : 950;
   const startedAt = performance.now();
   let isDismissed = false;
