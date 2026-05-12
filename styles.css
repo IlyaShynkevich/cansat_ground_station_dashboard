@@ -27,6 +27,177 @@ body {
   overflow: hidden;
 }
 
+.boot-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #f7fbff;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(135deg, #07111a 0%, #102636 48%, #090d14 100%);
+  background-size: 46px 46px, 46px 46px, auto;
+  transition: opacity 480ms ease, visibility 480ms ease;
+}
+
+.boot-screen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, transparent 0%, rgba(98, 207, 246, 0.16) 50%, transparent 100%);
+  opacity: 0.72;
+  transform: translateY(-100%);
+  animation: bootScan 2600ms ease-in-out infinite;
+}
+
+.boot-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.22) 100%),
+    repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 5px);
+  pointer-events: none;
+}
+
+.boot-screen--hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.boot-screen__content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: min(92vw, 440px);
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.boot-screen__avatar {
+  display: grid;
+  width: 154px;
+  height: 154px;
+  place-items: center;
+  border: 2px solid rgba(127, 221, 255, 0.62);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(127, 221, 255, 0.18), transparent 58%),
+    linear-gradient(180deg, #263341 0%, #111923 100%);
+  box-shadow:
+    0 0 0 8px rgba(127, 221, 255, 0.1),
+    0 20px 48px rgba(0, 0, 0, 0.34);
+  animation: bootAvatar 760ms ease-out both;
+}
+
+.boot-screen__avatar img {
+  display: block;
+  width: 116px;
+  max-height: 116px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.42));
+}
+
+.boot-screen__name {
+  margin-top: 22px;
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.boot-screen__status {
+  margin-top: 6px;
+  color: rgba(247, 251, 255, 0.76);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.boot-screen__spinner {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  margin-top: 24px;
+  border-radius: 50%;
+  background:
+    conic-gradient(from 0deg, #7fddff 0deg 78deg, #f3a000 98deg 144deg, transparent 168deg 360deg);
+  box-shadow: 0 0 18px rgba(127, 221, 255, 0.18);
+  transform-origin: 50% 50%;
+  will-change: transform;
+  animation: bootSpin 820ms linear infinite;
+}
+
+.boot-screen__spinner::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: #102636;
+}
+
+.boot-screen__progress {
+  position: relative;
+  width: min(68vw, 290px);
+  height: 4px;
+  margin-top: 22px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(247, 251, 255, 0.18);
+}
+
+.boot-screen__progress::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 46%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent 0%, #7fddff 42%, #f3a000 100%);
+  animation: bootProgress 1250ms ease-in-out infinite;
+}
+
+@keyframes bootAvatar {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes bootProgress {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(230%); }
+}
+
+@keyframes bootScan {
+  0% { transform: translateY(-100%); }
+  46%, 100% { transform: translateY(100%); }
+}
+
+@keyframes bootSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-screen,
+  .boot-screen::before,
+  .boot-screen__avatar,
+  .boot-screen__progress::before {
+    animation: none;
+    transition: none;
+  }
+
+  .boot-screen__progress::before {
+    width: 100%;
+  }
+}
+
 .topbar {
   height: 50px;
   display: flex;

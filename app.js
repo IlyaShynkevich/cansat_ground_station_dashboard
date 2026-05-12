@@ -1,3 +1,37 @@
+const bootScreen = document.getElementById("bootScreen");
+
+function initBootScreen() {
+  if (!bootScreen) return;
+
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  const minimumVisibleMs = reduceMotion ? 2400 : 22500;
+  const fadeMs = reduceMotion ? 0 : 520;
+  const startedAt = performance.now();
+  let isDismissed = false;
+
+  function dismiss() {
+    if (isDismissed) return;
+    isDismissed = true;
+
+    const elapsed = performance.now() - startedAt;
+    const remaining = Math.max(0, minimumVisibleMs - elapsed);
+    window.setTimeout(() => {
+      bootScreen.classList.add("boot-screen--hidden");
+      window.setTimeout(() => bootScreen.remove(), fadeMs);
+    }, remaining);
+  }
+
+  if (document.readyState === "complete") {
+    dismiss();
+  } else {
+    window.addEventListener("load", dismiss, { once: true });
+  }
+
+  window.setTimeout(dismiss, minimumVisibleMs + 1800);
+}
+
+initBootScreen();
+
 const elements = {
   sourceLabel: document.getElementById("sourceLabel"),
   missionTime: document.getElementById("missionTime"),
