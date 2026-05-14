@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Skybound Phone Monitor</title>
   <link rel="stylesheet" href="./phone.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./node_modules/three/build/three.module.js",
+        "three/addons/": "./node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
 </head>
 <body>
   <main class="phone-shell" role="main">
@@ -82,6 +90,22 @@
     <section class="panel">
       <div class="panel__eyebrow">Plots</div>
       <div class="plot-grid" id="plotGrid" aria-label="Live telemetry plots"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__eyebrow">IMU 3D</div>
+      <div class="imu-3d-grid" aria-label="Live IMU 3D graphs">
+        <article class="imu-3d-card">
+          <div class="imu-3d-card__title">Accelerometer</div>
+          <canvas id="accel3dCanvas" class="imu-3d-canvas" aria-label="3D accelerometer graph"></canvas>
+          <div class="imu-3d-card__values" id="accel3dVector">X -- | Y -- | Z --</div>
+        </article>
+        <article class="imu-3d-card">
+          <div class="imu-3d-card__title">Gyroscope</div>
+          <canvas id="gyro3dCanvas" class="imu-3d-canvas" aria-label="3D gyroscope graph"></canvas>
+          <div class="imu-3d-card__values" id="gyro3dVector">X -- | Y -- | Z --</div>
+        </article>
+      </div>
     </section>
 
     <section class="panel">

@@ -260,35 +260,93 @@ body {
 
 .plot-card {
   border: 1px solid var(--border);
-  border-radius: 14px;
-  background: #fbfdff;
-  padding: 10px;
+  border-radius: 8px;
+  background: #f9fbfd;
+  padding: 9px;
   display: grid;
-  gap: 6px;
+  gap: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
 .plot-card--wide {
   grid-column: 1 / -1;
 }
 
+.plot-card__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .plot-card__title {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
+  line-height: 1.25;
 }
 
 .plot-card__value {
-  font-size: 15px;
+  color: #20313f;
+  font-size: 13px;
   font-weight: 900;
+  line-height: 1.15;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .plot-card__svg {
   width: 100%;
   height: 140px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  background: linear-gradient(180deg, #ffffff 0%, #f5f9fc 100%);
+  border-radius: 6px;
+  background: #f9fbfd;
+}
+
+.imu-3d-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.imu-3d-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f9fbfd;
+  padding: 9px;
+  display: grid;
+  gap: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.imu-3d-card__title {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.imu-3d-canvas {
+  width: 100%;
+  height: 190px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #f9fbfd;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+.imu-3d-canvas:active {
+  cursor: grabbing;
+}
+
+.imu-3d-card__values {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .map-frame {
@@ -438,6 +496,7 @@ body {
   .status-row,
   .detail-grid,
   .telemetry-grid,
+  .imu-3d-grid,
   .plot-grid {
     grid-template-columns: 1fr;
   }

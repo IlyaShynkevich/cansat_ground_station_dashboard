@@ -43,6 +43,8 @@ const remoteMonitorAssets = new Set([
   "phone.css",
   "phone.js",
   "SkyBound/SkyBound_Logo.png",
+  "node_modules/three/build/three.module.js",
+  "node_modules/three/examples/jsm/controls/OrbitControls.js",
 ]);
 
 if (!hasSingleInstanceLock) {

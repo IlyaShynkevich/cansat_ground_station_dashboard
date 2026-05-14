@@ -48,6 +48,7 @@ const elements = {
   tempVal: document.getElementById("tempVal"),
   pressureVal: document.getElementById("pressureVal"),
   voltageVal: document.getElementById("voltageVal"),
+  batteryPercentVal: document.getElementById("batteryPercentVal"),
   currentVal: document.getElementById("currentVal"),
   gpsAltVal: document.getElementById("gpsAltVal"),
   gpsFixVal: document.getElementById("gpsFixVal"),
@@ -134,7 +135,10 @@ const serialDefaultHeaders = [
   "CMD_ARG",
 ];
 
+const groundStationOnlyHeaders = ["BATTERY_PERCENT"];
+const serialAcceptedHeaders = [...serialDefaultHeaders, ...groundStationOnlyHeaders];
 const serialHeaderSet = new Set(serialDefaultHeaders);
+const serialAcceptedHeaderSet = new Set(serialAcceptedHeaders);
 const serialHeaderAliasMap = Object.freeze({
   TEAM: "TEAM_ID",
   TEAMID: "TEAM_ID",
@@ -152,6 +156,14 @@ const serialHeaderAliasMap = Object.freeze({
   VOLTS: "VOLTAGE",
   BATTERY: "VOLTAGE",
   BATTERYVOLTAGE: "VOLTAGE",
+  BATTERYPERCENT: "BATTERY_PERCENT",
+  BATTERYPCT: "BATTERY_PERCENT",
+  BATTERYPERCENTAGE: "BATTERY_PERCENT",
+  PERCENT: "BATTERY_PERCENT",
+  PCT: "BATTERY_PERCENT",
+  CHARGE: "BATTERY_PERCENT",
+  STATEOFCHARGE: "BATTERY_PERCENT",
+  SOC: "BATTERY_PERCENT",
   CURRENTA: "CURRENT",
   GYROX: "GYRO_R",
   GYROY: "GYRO_P",
@@ -176,7 +188,7 @@ const outboundCommandMap = Object.freeze({
 });
 const bootAckHardwareKeys = Object.freeze(["I2C", "BMP", "BNO", "INA", "GPS", "SERVO"]);
 const defaultCommandTeamId = "1049";
-const serialFixedTelemetryFieldCount = serialDefaultHeaders.length - 1;
+const serialFixedTelemetryFieldCount = 22;
 
 let data = [];
 let index = 0;
@@ -1075,9 +1087,14 @@ function getRowPlotTimeSeconds(row, fallbackSeconds = 0) {
   return sequenceSeconds != null ? sequenceSeconds : fallbackSeconds;
 }
 
-function formatPlotSecondLabel(value) {
+function formatPlotSecondLabel(value, spanSeconds = 0) {
   if (!Number.isFinite(value)) return "--";
-  return `${Math.round(value)}s`;
+  const seconds = Math.max(0, Math.round(value));
+  if (spanSeconds >= 3600 || seconds >= 3600) return formatClockTime(seconds);
+  if (spanSeconds >= 60 || seconds >= 60) {
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  }
+  return `${seconds}s`;
 }
 
 function formatLatLon(lat, lon) {
@@ -1168,6 +1185,13 @@ function normalizeVoltage(value) {
   return voltage;
 }
 
+function normalizeBatteryPercent(value) {
+  let percent = toNumber(value);
+  if (percent == null) return null;
+  if (percent <= 1 && percent >= 0) percent *= 100;
+  return Math.max(0, Math.min(100, percent));
+}
+
 function csvEscape(value) {
   const text = String(value ?? "");
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
@@ -1239,10 +1263,10 @@ function setCommandFeedback(cmd, message) {
 }
 
 function buildSimulationRowFromColumns(headers, cols, rowIndex) {
-  const row = Object.fromEntries(serialDefaultHeaders.map((key) => [key, ""]));
+  const row = Object.fromEntries(serialAcceptedHeaders.map((key) => [key, ""]));
 
   headers.forEach((header, columnIndex) => {
-    if (!serialHeaderSet.has(header)) return;
+    if (!serialAcceptedHeaderSet.has(header)) return;
     row[header] = cols[columnIndex] ?? "";
   });
 
@@ -1609,7 +1633,7 @@ function buildMonitorSnapshot() {
       bootReady: getBootAckStatus(),
       loggingReady: data.length > 0 ? "ok" : "warn",
       simulationMode: getSimulationQuickCheckStatus(row),
-      batteryOk: normalizeVoltage(row?.VOLTAGE) != null ? "ok" : "warn",
+      batteryOk: normalizeBatteryPercent(row?.BATTERY_PERCENT) != null || normalizeVoltage(row?.VOLTAGE) != null ? "ok" : "warn",
     },
     boot: bootAck ? {
       teamId: bootAck.teamId,
@@ -1740,38 +1764,151 @@ function getSerialLinkHealth(now = Date.now()) {
   return "ok";
 }
 
+function escapeSvgText(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function makeSvgLocalId(svg, suffix) {
+  const base = String(svg?.id || "plot").replace(/[^a-zA-Z0-9_-]/g, "-") || "plot";
+  return `${base}-${suffix}`;
+}
+
+function getPlotLayout(wide = false) {
+  const width = wide ? 1100 : 540;
+  const rect = {
+    left: 42,
+    top: 16,
+    right: wide ? 1082 : 526,
+    bottom: 196,
+  };
+
+  return {
+    width,
+    height: 225,
+    rect,
+    centerX: rect.left + ((rect.right - rect.left) / 2),
+  };
+}
+
+function getNicePlotStep(range, targetTickCount = 4) {
+  if (!Number.isFinite(range) || range <= 0) return 1;
+  const rawStep = range / Math.max(1, targetTickCount);
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const residual = rawStep / magnitude;
+  const niceResidual = residual <= 1 ? 1 : (residual <= 2 ? 2 : (residual <= 5 ? 5 : 10));
+  return niceResidual * magnitude;
+}
+
+function getStepDigits(step) {
+  if (!Number.isFinite(step) || step <= 0 || step >= 1) return 0;
+  const fixed = step.toFixed(8).replace(/0+$/, "");
+  const dotIndex = fixed.indexOf(".");
+  return dotIndex >= 0 ? Math.min(4, fixed.length - dotIndex - 1) : 0;
+}
+
+function buildNicePlotScale(values, digits = 2, targetTickCount = 4) {
+  let min = Math.min(...values);
+  let max = Math.max(...values);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return { min: 0, max: 1, ticks: [0, 1], tickDigits: digits };
+  }
+
+  if (min === max) {
+    const padding = Math.max(Math.abs(min) * 0.1, 1);
+    min -= padding;
+    max += padding;
+  } else {
+    const padding = (max - min) * 0.08;
+    min -= padding;
+    max += padding;
+  }
+
+  const step = getNicePlotStep(max - min, targetTickCount);
+  const scaleMin = Math.floor(min / step) * step;
+  const scaleMax = Math.ceil(max / step) * step;
+  const ticks = [];
+  for (let value = scaleMin; value <= scaleMax + (step * 0.5); value += step) {
+    ticks.push(Number(value.toPrecision(12)));
+    if (ticks.length > 8) break;
+  }
+
+  return {
+    min: scaleMin,
+    max: scaleMax,
+    ticks,
+    tickDigits: Math.max(digits, getStepDigits(step)),
+  };
+}
+
+function buildEvenTicks(min, max, count = 4) {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+  if (max <= min) return [min];
+  const safeCount = Math.max(2, count);
+  return Array.from({ length: safeCount }, (_, tickIndex) => (
+    min + ((max - min) * (tickIndex / (safeCount - 1)))
+  ));
+}
+
+function makePlotProjector(rect, xMin, xMax, yMin, yMax) {
+  return {
+    sx: (x) => rect.left + ((x - xMin) / (xMax - xMin || 1)) * (rect.right - rect.left),
+    sy: (y) => rect.bottom - ((y - yMin) / (yMax - yMin || 1)) * (rect.bottom - rect.top),
+  };
+}
+
+function formatPlotTickValue(value, digits = 2) {
+  if (!Number.isFinite(value)) return "--";
+  const normalized = Math.abs(value) < 1e-9 ? 0 : value;
+  return normalized.toFixed(digits);
+}
+
 function buildBaseGrid(svg, options = {}) {
   const { wide = false, yAxisLabel = "", xAxisLabel = "Time (s)" } = options;
-  const width = wide ? 1100 : 540;
-  const left = 46;
-  const top = 22;
-  const bottom = 188;
-  const right = wide ? 1072 : 516;
-  const axisCenterX = left + ((right - left) / 2);
+  const layout = getPlotLayout(wide);
+  const { width, height, rect, centerX } = layout;
+  const clipId = makeSvgLocalId(svg, "clip");
+  const axisCenterY = rect.top + ((rect.bottom - rect.top) / 2);
   const yAxisText = yAxisLabel
-    ? `<text x="18" y="105" text-anchor="middle" dominant-baseline="middle" fill="#5d6a75" font-size="12" font-weight="700" transform="rotate(-90 18 105)">${yAxisLabel}</text>`
+    ? `<text x="14" y="${axisCenterY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#5d6a75" font-size="10" font-weight="800" transform="rotate(-90 14 ${axisCenterY.toFixed(1)})">${escapeSvgText(yAxisLabel)}</text>`
     : "";
   const xAxisText = xAxisLabel
-    ? `<text x="${axisCenterX}" y="217" text-anchor="middle" fill="#5d6a75" font-size="12" font-weight="700">${xAxisLabel}</text>`
+    ? `<text x="${centerX}" y="220" text-anchor="middle" fill="#5d6a75" font-size="10" font-weight="800">${escapeSvgText(xAxisLabel)}</text>`
     : "";
   svg.innerHTML = `
-    <rect x="0" y="0" width="${width}" height="225" fill="#fff"></rect>
-    <line x1="${left}" y1="${top}" x2="${left}" y2="${bottom}" stroke="#15202b" stroke-width="2"></line>
-    <line x1="${left}" y1="${bottom}" x2="${right}" y2="${bottom}" stroke="#15202b" stroke-width="2"></line>
+    <defs>
+      <clipPath id="${clipId}">
+        <rect x="${rect.left}" y="${rect.top}" width="${rect.right - rect.left}" height="${rect.bottom - rect.top}" rx="5"></rect>
+      </clipPath>
+    </defs>
+    <rect x="0" y="0" width="${width}" height="${height}" fill="#f9fbfd"></rect>
+    <rect x="${rect.left}" y="${rect.top}" width="${rect.right - rect.left}" height="${rect.bottom - rect.top}" rx="5" fill="#ffffff" stroke="#dce5ec" stroke-width="1"></rect>
     ${yAxisText}
     ${xAxisText}
   `;
+  return { ...layout, clipId };
 }
 
 function buildPath(points, rect, xMin, xMax, yMin, yMax) {
   if (points.length < 2) return "";
-  const sx = (x) => rect.left + ((x - xMin) / (xMax - xMin || 1)) * (rect.right - rect.left);
-  const sy = (y) => rect.bottom - ((y - yMin) / (yMax - yMin || 1)) * (rect.bottom - rect.top);
+  const { sx, sy } = makePlotProjector(rect, xMin, xMax, yMin, yMax);
   let d = "";
   for (let i = 0; i < points.length; i += 1) {
     d += `${i === 0 ? "M" : " L"}${sx(points[i].x).toFixed(1)} ${sy(points[i].y).toFixed(1)}`;
   }
   return d;
+}
+
+function buildAreaPath(points, rect, xMin, xMax, yMin, yMax) {
+  const line = buildPath(points, rect, xMin, xMax, yMin, yMax);
+  if (!line) return "";
+  const { sx } = makePlotProjector(rect, xMin, xMax, yMin, yMax);
+  const first = points[0];
+  const last = points[points.length - 1];
+  return `${line} L${sx(last.x).toFixed(1)} ${rect.bottom} L${sx(first.x).toFixed(1)} ${rect.bottom} Z`;
 }
 
 function formatPlotValue(value, digits = 2, unit = "") {
@@ -1782,74 +1919,82 @@ function formatPlotValue(value, digits = 2, unit = "") {
 
 function renderSeries(svg, series, options = {}) {
   const { wide = false, unit = "", digits = 2 } = options;
-  buildBaseGrid(svg, options);
-  const cleanedSeries = series.map((s) => ({
-    ...s,
-    points: s.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)),
-  }));
+  const { rect, clipId } = buildBaseGrid(svg, options);
+  const cleanedSeries = series
+    .map((s) => ({
+      ...s,
+      points: s.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)),
+    }))
+    .filter((s) => s.points.length);
 
-  if (!cleanedSeries.length || !cleanedSeries.some((s) => s.points.length > 1)) {
+  if (!cleanedSeries.length) {
     const x = wide ? 550 : 270;
     svg.insertAdjacentHTML(
       "beforeend",
-      `<text x="${x}" y="113" text-anchor="middle" fill="#5d6a75" font-size="15" font-weight="700">No data</text>`
+      `<text x="${x}" y="110" text-anchor="middle" fill="#5d6a75" font-size="14" font-weight="800">Waiting for telemetry</text>`
     );
     return;
   }
 
   const allY = cleanedSeries.flatMap((s) => s.points.map((p) => p.y));
-  const yMinRaw = Math.min(...allY);
-  const yMaxRaw = Math.max(...allY);
-  const pad = (yMaxRaw - yMinRaw) * 0.08 || 1;
-  const yMin = yMinRaw - pad;
-  const yMax = yMaxRaw + pad;
   const allX = cleanedSeries.flatMap((s) => s.points.map((p) => p.x));
+  const yScale = buildNicePlotScale(allY, digits);
   const xMinRaw = Math.min(...allX);
   const xMaxRaw = Math.max(...allX);
-  const rect = wide
-    ? { left: 46, top: 22, right: 1072, bottom: 188 }
-    : { left: 46, top: 22, right: 516, bottom: 188 };
+  const xPad = xMinRaw === xMaxRaw ? 1 : 0;
+  const xMin = Math.max(0, xMinRaw - xPad);
+  const xMax = xMaxRaw + xPad;
+  const xSpan = xMaxRaw - xMinRaw;
+  const xTicks = buildEvenTicks(xMin, xMax, wide ? 5 : 4);
+  const { sx, sy } = makePlotProjector(rect, xMin, xMax, yScale.min, yScale.max);
+  const sampleCount = Math.max(...cleanedSeries.map((s) => s.points.length));
+  const sampleText = `${sampleCount} sample${sampleCount === 1 ? "" : "s"} | ${formatPlotSecondLabel(xMinRaw, xSpan)}-${formatPlotSecondLabel(xMaxRaw, xSpan)}`;
 
   svg.insertAdjacentHTML(
     "beforeend",
-    `<text x="${rect.left + 8}" y="${rect.top + 14}" fill="#5d6a75" font-size="12" font-weight="700">${formatPlotValue(yMaxRaw, digits, unit)}</text>` +
-    `<text x="${rect.left + 8}" y="${rect.bottom - 7}" fill="#5d6a75" font-size="12" font-weight="700">${formatPlotValue(yMinRaw, digits, unit)}</text>`
+    `<g>
+      ${yScale.ticks.map((tick) => {
+        const y = sy(tick);
+        const isBaseline = Math.abs(tick) < 1e-9;
+        return `
+          <line x1="${rect.left}" y1="${y.toFixed(1)}" x2="${rect.right}" y2="${y.toFixed(1)}" stroke="${isBaseline ? "#aebbc6" : "#dce5ec"}" stroke-width="${isBaseline ? "1.35" : "1"}"></line>
+          <text x="${rect.left - 7}" y="${(y + 4).toFixed(1)}" text-anchor="end" fill="#63717c" font-size="10" font-weight="700">${escapeSvgText(formatPlotTickValue(tick, yScale.tickDigits))}</text>
+        `;
+      }).join("")}
+      ${xTicks.map((tick) => {
+        const x = sx(tick);
+        return `
+          <line x1="${x.toFixed(1)}" y1="${rect.top}" x2="${x.toFixed(1)}" y2="${rect.bottom}" stroke="#e5edf2" stroke-width="1"></line>
+          <line x1="${x.toFixed(1)}" y1="${rect.bottom}" x2="${x.toFixed(1)}" y2="${(rect.bottom + 5).toFixed(1)}" stroke="#8b9aa5" stroke-width="1.2"></line>
+          <text x="${x.toFixed(1)}" y="${(rect.bottom + 17).toFixed(1)}" text-anchor="${tick === xTicks[0] ? "start" : (tick === xTicks[xTicks.length - 1] ? "end" : "middle")}" fill="#63717c" font-size="10" font-weight="700">${escapeSvgText(formatPlotSecondLabel(tick, xSpan))}</text>
+        `;
+      }).join("")}
+      <line x1="${rect.left}" y1="${rect.top}" x2="${rect.left}" y2="${rect.bottom}" stroke="#15202b" stroke-width="1.6"></line>
+      <line x1="${rect.left}" y1="${rect.bottom}" x2="${rect.right}" y2="${rect.bottom}" stroke="#15202b" stroke-width="1.6"></line>
+      <text x="${rect.right}" y="${rect.top - 8}" text-anchor="end" fill="#7a8791" font-size="10" font-weight="800">${escapeSvgText(sampleText)}</text>
+    </g>`
   );
 
-  if (allX.length) {
-    const xMidRaw = xMinRaw + ((xMaxRaw - xMinRaw) / 2);
-    const ticks = xMaxRaw > xMinRaw
-      ? [
-          { x: rect.left, label: formatPlotSecondLabel(xMinRaw), anchor: "start" },
-          { x: (rect.left + rect.right) / 2, label: formatPlotSecondLabel(xMidRaw), anchor: "middle" },
-          { x: rect.right, label: formatPlotSecondLabel(xMaxRaw), anchor: "end" },
-        ]
-      : [
-          { x: (rect.left + rect.right) / 2, label: formatPlotSecondLabel(xMinRaw), anchor: "middle" },
-        ];
-
-    svg.insertAdjacentHTML(
-      "beforeend",
-      ticks.map((tick) => (
-        `<line x1="${tick.x.toFixed(1)}" y1="${rect.bottom}" x2="${tick.x.toFixed(1)}" y2="${(rect.bottom + 5).toFixed(1)}" stroke="#5d6a75" stroke-width="1.5"></line>` +
-        `<text x="${tick.x.toFixed(1)}" y="${(rect.bottom + 18).toFixed(1)}" text-anchor="${tick.anchor}" fill="#5d6a75" font-size="11" font-weight="700">${tick.label}</text>`
-      )).join("")
-    );
-  }
-
   cleanedSeries.forEach((s) => {
-    const d = buildPath(s.points, rect, xMinRaw, xMaxRaw, yMin, yMax);
-    if (!d) return;
+    const d = buildPath(s.points, rect, xMin, xMax, yScale.min, yScale.max);
+    const area = buildAreaPath(s.points, rect, xMin, xMax, yScale.min, yScale.max);
     const dash = s.dashed ? ' stroke-dasharray="7 6"' : "";
-    svg.insertAdjacentHTML(
-      "beforeend",
-      `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width}"${dash}></path>`
-    );
+    if (area) {
+      svg.insertAdjacentHTML(
+        "beforeend",
+        `<path d="${area}" fill="${s.color}" opacity="0.09" clip-path="url(#${clipId})"></path>`
+      );
+    }
+
+    if (d) {
+      svg.insertAdjacentHTML(
+        "beforeend",
+        `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width}" stroke-linecap="round" stroke-linejoin="round"${dash} clip-path="url(#${clipId})"></path>`
+      );
+    }
 
     const first = s.points[0];
     const last = s.points[s.points.length - 1];
-    const sx = (x) => rect.left + ((x - xMinRaw) / (xMaxRaw - xMinRaw || 1)) * (rect.right - rect.left);
-    const sy = (y) => rect.bottom - ((y - yMin) / (yMax - yMin || 1)) * (rect.bottom - rect.top);
     const firstX = sx(first.x).toFixed(1);
     const firstY = sy(first.y).toFixed(1);
     const lastX = sx(last.x).toFixed(1);
@@ -1857,16 +2002,20 @@ function renderSeries(svg, series, options = {}) {
 
     svg.insertAdjacentHTML(
       "beforeend",
-      `<circle cx="${firstX}" cy="${firstY}" r="3.5" fill="${s.color}"></circle>` +
-      `<circle cx="${lastX}" cy="${lastY}" r="4.5" fill="${s.color}"></circle>`
+      `<circle cx="${firstX}" cy="${firstY}" r="3" fill="#ffffff" stroke="${s.color}" stroke-width="2"></circle>` +
+      `<circle cx="${lastX}" cy="${lastY}" r="5" fill="#ffffff" stroke="${s.color}" stroke-width="2.5"></circle>` +
+      `<circle cx="${lastX}" cy="${lastY}" r="2.2" fill="${s.color}"></circle>`
     );
 
     if (last.y != null) {
-      const labelX = Math.min(rect.right - 8, sx(last.x) + 10);
-      const labelY = Math.max(rect.top + 14, sy(last.y) - 10);
+      const label = formatPlotValue(last.y, digits, unit);
+      const labelWidth = Math.max(48, (label.length * 7) + 14);
+      const labelX = Math.min(rect.right - labelWidth - 5, Math.max(rect.left + 5, sx(last.x) + 10));
+      const labelY = Math.max(rect.top + 6, Math.min(rect.bottom - 26, sy(last.y) - 25));
       svg.insertAdjacentHTML(
         "beforeend",
-        `<text x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" fill="${s.color}" font-size="13" font-weight="700">${formatPlotValue(last.y, digits, unit)}</text>`
+        `<rect x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" width="${labelWidth.toFixed(1)}" height="20" rx="5" fill="#ffffff" stroke="${s.color}" stroke-width="1.4"></rect>` +
+        `<text x="${(labelX + (labelWidth / 2)).toFixed(1)}" y="${(labelY + 14).toFixed(1)}" text-anchor="middle" fill="${s.color}" font-size="11" font-weight="900">${escapeSvgText(label)}</text>`
       );
     }
   });
@@ -2183,6 +2332,7 @@ function clearUi() {
   elements.tempVal.textContent = "--";
   elements.pressureVal.textContent = "--";
   elements.voltageVal.textContent = "--";
+  elements.batteryPercentVal.textContent = "--";
   elements.currentVal.textContent = "--";
   elements.gpsAltVal.textContent = "--";
   elements.accelVector.textContent = "X -- | Y -- | Z --";
@@ -2275,6 +2425,7 @@ function updateUi() {
   const temp = toNumber(row.TEMPERATURE);
   const pressure = normalizePressure(row.PRESSURE);
   const volt = normalizeVoltage(row.VOLTAGE);
+  const batteryPercent = normalizeBatteryPercent(row.BATTERY_PERCENT);
   const current = toNumber(row.CURRENT);
   const gpsAlt = toNumber(row.GPS_ALTITUDE);
   const lat = toNumber(row.GPS_LATITUDE);
@@ -2290,6 +2441,7 @@ function updateUi() {
   elements.tempVal.textContent = formatNum(temp, 1);
   elements.pressureVal.textContent = formatNum(pressure, 1);
   elements.voltageVal.textContent = formatNum(volt, 2);
+  elements.batteryPercentVal.textContent = formatNum(batteryPercent, 1);
   elements.currentVal.textContent = formatNum(current, 2);
   elements.gpsAltVal.textContent = formatNum(gpsAlt, 1);
   elements.accelVector.textContent = `X ${formatNum(accelX, 2)} | Y ${formatNum(accelY, 2)} | Z ${formatNum(accelZ, 2)}`;
@@ -2314,7 +2466,9 @@ function updateUi() {
   const start = Math.max(0, plotRows.length - tailSize);
   const windowRows = plotRows.slice(start);
   renderSeries(plots.alt, [{
-    points: windowRows.map((r, rowIndex) => ({ x: getRowPlotTimeSeconds(r, start + rowIndex), y: toNumber(r.ALTITUDE) ?? 0 })),
+    points: windowRows
+      .map((r, rowIndex) => ({ x: getRowPlotTimeSeconds(r, start + rowIndex), y: toNumber(r.ALTITUDE) }))
+      .filter((p) => p.y != null),
     color: "#0f6a9e",
     width: 3,
   }], plotOptions.alt);
@@ -2350,10 +2504,10 @@ function updateUi() {
 }
 
 function coerceRow(headers, cols) {
-  const row = Object.fromEntries(serialDefaultHeaders.map((key) => [key, ""]));
+  const row = Object.fromEntries(serialAcceptedHeaders.map((key) => [key, ""]));
   headers.forEach((header, indexValue) => {
     const key = canonicalHeader(header);
-    if (!serialHeaderSet.has(key)) return;
+    if (!serialAcceptedHeaderSet.has(key)) return;
     row[key] = cols[indexValue] ?? "";
   });
   if (!row.PACKET_COUNT) {
@@ -2371,6 +2525,7 @@ function isValidTelemetryRow(row) {
     "TEMPERATURE",
     "PRESSURE",
     "VOLTAGE",
+    "CURRENT",
     "GYRO_R",
     "GYRO_P",
     "GYRO_Y",
@@ -2422,26 +2577,26 @@ function parseIndexedSerialRow(line) {
   const cols = [];
   pairs.forEach((pair) => {
     const targetIndex = pair.indexValue - offset;
-    if (targetIndex < 0 || targetIndex >= serialDefaultHeaders.length) return;
+    if (targetIndex < 0 || targetIndex >= serialAcceptedHeaders.length) return;
     cols[targetIndex] = pair.value;
   });
 
-  const row = coerceRow(serialDefaultHeaders, cols);
+  const row = coerceRow(serialAcceptedHeaders, cols);
   return isValidTelemetryRow(row) ? row : null;
 }
 
 function parseNamedSerialRow(line) {
   const tokens = splitPacketTokens(line);
-  if (tokens.length < 4) return null;
+  if (tokens.length < 3) return null;
 
-  const row = Object.fromEntries(serialDefaultHeaders.map((key) => [key, ""]));
+  const row = Object.fromEntries(serialAcceptedHeaders.map((key) => [key, ""]));
   let matchedFields = 0;
 
   for (const token of tokens) {
     const match = token.match(/^([A-Za-z][A-Za-z0-9_ \-]*)\s*[:=]\s*(.*)$/);
     if (!match) return null;
     const key = canonicalHeader(match[1]);
-    if (!serialHeaderSet.has(key)) continue;
+    if (!serialAcceptedHeaderSet.has(key)) continue;
     row[key] = match[2].trim();
     matchedFields += 1;
   }
@@ -2668,6 +2823,16 @@ function parseSerialRow(line) {
   return isValidTelemetryRow(row) ? row : null;
 }
 
+function mergePartialTelemetryRow(row) {
+  if (!row?._PARTIAL) return row;
+  const merged = Object.fromEntries(serialAcceptedHeaders.map((key) => [key, data[data.length - 1]?.[key] ?? ""]));
+  serialAcceptedHeaders.forEach((key) => {
+    if (row[key] != null && row[key] !== "") merged[key] = row[key];
+  });
+  if (!merged.PACKET_COUNT) merged.PACKET_COUNT = String(data.length + 1);
+  return merged;
+}
+
 function handleSerialLine(line) {
   const clean = line.trim();
   if (!clean) return;
@@ -2685,15 +2850,16 @@ function handleSerialLine(line) {
     }
     return;
   }
+  const completeRow = mergePartialTelemetryRow(row);
   badLineStreak = 0;
   serialValidLineCount += 1;
   lastTelemetryRowAt = Date.now();
   pushSerialPreview("ROW>", sanitizePreviewText(clean));
   setSerialDebugHint("Valid telemetry rows received.");
-  if (row.TEAM_ID) lastKnownTeamId = String(row.TEAM_ID).trim();
-  row._SEQ = String(data.length);
-  data.push(row);
-  archiveTelemetryRow(row);
+  if (completeRow.TEAM_ID) lastKnownTeamId = String(completeRow.TEAM_ID).trim();
+  completeRow._SEQ = String(data.length);
+  data.push(completeRow);
+  archiveTelemetryRow(completeRow);
   index = data.length - 1;
   if (data.length === 1) {
     elements.sourceLabel.textContent = `Source: ${serialPort?.path || "Link"} @ ${currentBaudRate}`;
