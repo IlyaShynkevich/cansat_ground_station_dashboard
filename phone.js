@@ -96,8 +96,9 @@ function toNumber(value) {
 
 function parseClockTime(value) {
   const text = String(value ?? "").trim();
-  if (!/^\d{2}:\d{2}:\d{2}$/.test(text)) return null;
-  const [hours, minutes, seconds] = text.split(":").map(Number);
+  const match = text.match(/^(\d+):([0-5]\d):([0-5]\d)$/);
+  if (!match) return null;
+  const [, hours, minutes, seconds] = match.map(Number);
   return (hours * 3600) + (minutes * 60) + seconds;
 }
 
@@ -718,7 +719,7 @@ function resetPlotHistory() {
 function updatePlotHistory(snapshot) {
   const mission = snapshot?.mission || {};
   const packet = toNumber(mission.packetsReceived);
-  const timeSeconds = parseClockTime(mission.time);
+  const timeSeconds = parseClockTime(mission.time) ?? packet;
   const source = String(snapshot?.sourceLabel || "");
   const contextKey = [
     source,

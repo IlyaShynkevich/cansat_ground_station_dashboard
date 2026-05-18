@@ -885,7 +885,7 @@ function canonicalHeader(name) {
 }
 
 function isTimeToken(value) {
-  return /^\d{2}:\d{2}:\d{2}$/.test(String(value ?? "").trim());
+  return /^\d+:[0-5]\d:[0-5]\d$/.test(String(value ?? "").trim());
 }
 
 function looksLikeTelemetryCols(cols) {
@@ -2368,7 +2368,7 @@ function renderFullTelemetry(row) {
 
 function parseMissionTimeParts(value) {
   const text = String(value || "").trim();
-  const match = text.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+  const match = text.match(/^(\d+):([0-5]\d):([0-5]\d)$/);
   if (!match) return null;
 
   const hours = Number(match[1]);
@@ -2700,7 +2700,7 @@ function takeInlineBootPacket(buffer) {
 
 function takeInlineTelemetryPacket(buffer) {
   const num = "-?\\d+(?:\\.\\d+)?";
-  const time = "\\d{2}:\\d{2}:\\d{2}";
+  const time = "\\d+:[0-5]\\d:[0-5]\\d";
   const text = "[^,\\r\\n]+";
   const finalText = "[^,\\r\\n]+?";
   const pattern = new RegExp(
