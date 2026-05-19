@@ -262,7 +262,7 @@ body {
 
 .panel__title {
   margin: 0 0 3px;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 900;
 }
 .panel__subtitle {
@@ -281,11 +281,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 136px;
+  min-height: 148px;
   margin: 0 0 8px;
-  padding: 10px 12px;
+  padding: 4px 6px;
   border: 2px solid #23303c;
   border-radius: 12px;
+  overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   background:
     radial-gradient(circle at 50% 36%, rgba(52, 191, 239, 0.22), rgba(52, 191, 239, 0) 48%),
@@ -294,10 +295,12 @@ body {
 
 .team-logo__image {
   display: block;
-  width: min(100%, 210px);
-  max-height: 168px;
+  width: min(120%, 250px);
+  max-height: 196px;
   height: auto;
   object-fit: contain;
+  transform: translateY(-4px) scale(1.12);
+  transform-origin: center;
   filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.28));
 }
 
@@ -677,10 +680,10 @@ body {
     var(--card-grad);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
 }
-.metric__k { color: var(--muted); font-weight: 700; font-size: 10px; }
-.metric__v { font-size: 14px; font-weight: 900; }
-.metric__v--small { font-size: 12px; }
-.unit { color: var(--muted); font-size: 10px; font-weight: 700; }
+.metric__k { color: var(--muted); font-weight: 700; font-size: 12px; }
+.metric__v { font-size: 18px; font-weight: 900; }
+.metric__v--small { font-size: 15px; }
+.unit { color: var(--muted); font-size: 12px; font-weight: 700; }
 
 .plots {
   margin-top: 2px;
@@ -710,7 +713,7 @@ body {
 .plot__title {
   margin: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
   line-height: 1.1;
   text-transform: uppercase;
@@ -868,21 +871,21 @@ body {
 .telemetry-cell {
   border: 2px solid var(--border);
   border-radius: 8px;
-  padding: 5px 6px;
+  padding: 6px 7px;
   min-width: 0;
   background: linear-gradient(180deg, #ffffff 0%, #f0f8fc 100%);
 }
 
 .telemetry-cell__k {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   line-height: 1.15;
 }
 
 .telemetry-cell__v {
-  margin-top: 1px;
-  font-size: 12px;
+  margin-top: 2px;
+  font-size: 16px;
   font-weight: 900;
   overflow: hidden;
   text-overflow: ellipsis;

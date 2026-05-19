@@ -511,8 +511,8 @@ function renderPlotCard(definition, snapshot) {
   const { key, label, color, unit, wide = false } = definition;
   const history = plotHistory[key] || [];
   const width = 320;
-  const height = 140;
-  const rect = { left: 36, top: 18, right: 306, bottom: 112 };
+  const height = 168;
+  const rect = { left: 62, top: 24, right: 302, bottom: 122 };
   const value = getPlotDisplayValue(snapshot, definition);
 
   let svg = `
@@ -549,17 +549,17 @@ function renderPlotCard(definition, snapshot) {
         ];
 
     svg += `
-      <text x="${rect.left - 5}" y="${rect.top + 4}" text-anchor="end" fill="#6f7f8a" font-size="9" font-weight="700">${escapeHtml(formatPlotValue(yMaxRaw.toFixed(1), unit))}</text>
-      <text x="${rect.left - 5}" y="${rect.bottom + 3}" text-anchor="end" fill="#6f7f8a" font-size="9" font-weight="700">${escapeHtml(formatPlotValue(yMinRaw.toFixed(1), unit))}</text>
+      <text x="${rect.left - 10}" y="${rect.top + 5}" text-anchor="end" fill="#6f7f8a" font-size="13" font-weight="800">${escapeHtml(formatPlotValue(yMaxRaw.toFixed(1), unit))}</text>
+      <text x="${rect.left - 10}" y="${rect.bottom + 5}" text-anchor="end" fill="#6f7f8a" font-size="13" font-weight="800">${escapeHtml(formatPlotValue(yMinRaw.toFixed(1), unit))}</text>
       ${ticks.map((tick) => `
         <line x1="${tick.x.toFixed(1)}" y1="${rect.bottom}" x2="${tick.x.toFixed(1)}" y2="${(rect.bottom + 4).toFixed(1)}" stroke="#8494a0" stroke-width="1"></line>
-        <text x="${tick.x.toFixed(1)}" y="${(rect.bottom + 14).toFixed(1)}" text-anchor="${tick.anchor}" fill="#6f7f8a" font-size="9" font-weight="700">${escapeHtml(tick.label)}</text>
+        <text x="${tick.x.toFixed(1)}" y="${(rect.bottom + 19).toFixed(1)}" text-anchor="${tick.anchor}" fill="#6f7f8a" font-size="13" font-weight="800">${escapeHtml(tick.label)}</text>
       `).join("")}
       <path d="${d}" fill="none" stroke="${color}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"></path>
       <circle cx="${sx(lastPoint.x).toFixed(1)}" cy="${sy(lastPoint.y).toFixed(1)}" r="2.4" fill="#f9fbfd" stroke="${color}" stroke-width="1.7"></circle>
     `;
   } else {
-    svg += `<text x="170" y="72" text-anchor="middle" fill="#61717d" font-size="11" font-weight="700">Waiting for telemetry history</text>`;
+    svg += `<text x="170" y="86" text-anchor="middle" fill="#61717d" font-size="15" font-weight="800">Waiting for telemetry history</text>`;
   }
 
   svg += "</svg>";

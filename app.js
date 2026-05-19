@@ -222,7 +222,7 @@ let lastSerialByteAt = 0;
 let lastTelemetryRowAt = 0;
 let currentBaudRate = 57600;
 let lastKnownTeamId = defaultCommandTeamId;
-let mapZoomScale = 1.7;
+let mapZoomScale = 0.56;
 
 const tailSize = 80;
 const defaultBaudRate = 57600;
@@ -244,7 +244,7 @@ const mapTrailLimit = 48;
 const mapFollowViewWidthMeters = 900;
 const mapFollowViewHeightMeters = 650;
 const mapMinZoomScale = 0.08;
-const mapMaxZoomScale = 5;
+const mapMaxZoomScale = 1500 / mapFollowViewWidthMeters;
 const mapZoomStep = 0.1;
 const mapTileSize = 256;
 const mapTileMaxZoom = 18;
@@ -1780,10 +1780,10 @@ function makeSvgLocalId(svg, suffix) {
 function getPlotLayout(wide = false) {
   const width = wide ? 1100 : 540;
   const rect = {
-    left: 42,
-    top: 16,
-    right: wide ? 1082 : 526,
-    bottom: 196,
+    left: 88,
+    top: 32,
+    right: wide ? 1074 : 518,
+    bottom: 168,
   };
 
   return {
@@ -1873,10 +1873,10 @@ function buildBaseGrid(svg, options = {}) {
   const clipId = makeSvgLocalId(svg, "clip");
   const axisCenterY = rect.top + ((rect.bottom - rect.top) / 2);
   const yAxisText = yAxisLabel
-    ? `<text x="14" y="${axisCenterY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#5d6a75" font-size="10" font-weight="800" transform="rotate(-90 14 ${axisCenterY.toFixed(1)})">${escapeSvgText(yAxisLabel)}</text>`
+    ? `<text x="22" y="${axisCenterY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#5d6a75" font-size="17" font-weight="900" transform="rotate(-90 22 ${axisCenterY.toFixed(1)})">${escapeSvgText(yAxisLabel)}</text>`
     : "";
   const xAxisText = xAxisLabel
-    ? `<text x="${centerX}" y="220" text-anchor="middle" fill="#5d6a75" font-size="10" font-weight="800">${escapeSvgText(xAxisLabel)}</text>`
+    ? `<text x="${centerX}" y="221" text-anchor="middle" fill="#5d6a75" font-size="17" font-weight="900">${escapeSvgText(xAxisLabel)}</text>`
     : "";
   svg.innerHTML = `
     <defs>
@@ -1931,7 +1931,7 @@ function renderSeries(svg, series, options = {}) {
     const x = wide ? 550 : 270;
     svg.insertAdjacentHTML(
       "beforeend",
-      `<text x="${x}" y="110" text-anchor="middle" fill="#5d6a75" font-size="14" font-weight="800">Waiting for telemetry</text>`
+      `<text x="${x}" y="110" text-anchor="middle" fill="#5d6a75" font-size="22" font-weight="900">Waiting for telemetry</text>`
     );
     return;
   }
@@ -1958,7 +1958,7 @@ function renderSeries(svg, series, options = {}) {
         const isBaseline = Math.abs(tick) < 1e-9;
         return `
           <line x1="${rect.left}" y1="${y.toFixed(1)}" x2="${rect.right}" y2="${y.toFixed(1)}" stroke="${isBaseline ? "#aebbc6" : "#dce5ec"}" stroke-width="${isBaseline ? "1.35" : "1"}"></line>
-          <text x="${rect.left - 7}" y="${(y + 4).toFixed(1)}" text-anchor="end" fill="#63717c" font-size="10" font-weight="700">${escapeSvgText(formatPlotTickValue(tick, yScale.tickDigits))}</text>
+          <text x="${rect.left - 14}" y="${(y + 7).toFixed(1)}" text-anchor="end" fill="#63717c" font-size="18" font-weight="900">${escapeSvgText(formatPlotTickValue(tick, yScale.tickDigits))}</text>
         `;
       }).join("")}
       ${xTicks.map((tick) => {
@@ -1966,12 +1966,12 @@ function renderSeries(svg, series, options = {}) {
         return `
           <line x1="${x.toFixed(1)}" y1="${rect.top}" x2="${x.toFixed(1)}" y2="${rect.bottom}" stroke="#e5edf2" stroke-width="1"></line>
           <line x1="${x.toFixed(1)}" y1="${rect.bottom}" x2="${x.toFixed(1)}" y2="${(rect.bottom + 5).toFixed(1)}" stroke="#8b9aa5" stroke-width="1.2"></line>
-          <text x="${x.toFixed(1)}" y="${(rect.bottom + 17).toFixed(1)}" text-anchor="${tick === xTicks[0] ? "start" : (tick === xTicks[xTicks.length - 1] ? "end" : "middle")}" fill="#63717c" font-size="10" font-weight="700">${escapeSvgText(formatPlotSecondLabel(tick, xSpan))}</text>
+          <text x="${x.toFixed(1)}" y="${(rect.bottom + 26).toFixed(1)}" text-anchor="${tick === xTicks[0] ? "start" : (tick === xTicks[xTicks.length - 1] ? "end" : "middle")}" fill="#63717c" font-size="18" font-weight="900">${escapeSvgText(formatPlotSecondLabel(tick, xSpan))}</text>
         `;
       }).join("")}
       <line x1="${rect.left}" y1="${rect.top}" x2="${rect.left}" y2="${rect.bottom}" stroke="#15202b" stroke-width="1.6"></line>
       <line x1="${rect.left}" y1="${rect.bottom}" x2="${rect.right}" y2="${rect.bottom}" stroke="#15202b" stroke-width="1.6"></line>
-      <text x="${rect.right}" y="${rect.top - 8}" text-anchor="end" fill="#7a8791" font-size="10" font-weight="800">${escapeSvgText(sampleText)}</text>
+      <text x="${rect.right}" y="${rect.top - 12}" text-anchor="end" fill="#7a8791" font-size="15" font-weight="900">${escapeSvgText(sampleText)}</text>
     </g>`
   );
 
@@ -2009,13 +2009,13 @@ function renderSeries(svg, series, options = {}) {
 
     if (last.y != null) {
       const label = formatPlotValue(last.y, digits, unit);
-      const labelWidth = Math.max(48, (label.length * 7) + 14);
+      const labelWidth = Math.max(86, (label.length * 12) + 28);
       const labelX = Math.min(rect.right - labelWidth - 5, Math.max(rect.left + 5, sx(last.x) + 10));
-      const labelY = Math.max(rect.top + 6, Math.min(rect.bottom - 26, sy(last.y) - 25));
+      const labelY = Math.max(rect.top + 6, Math.min(rect.bottom - 42, sy(last.y) - 40));
       svg.insertAdjacentHTML(
         "beforeend",
-        `<rect x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" width="${labelWidth.toFixed(1)}" height="20" rx="5" fill="#ffffff" stroke="${s.color}" stroke-width="1.4"></rect>` +
-        `<text x="${(labelX + (labelWidth / 2)).toFixed(1)}" y="${(labelY + 14).toFixed(1)}" text-anchor="middle" fill="${s.color}" font-size="11" font-weight="900">${escapeSvgText(label)}</text>`
+        `<rect x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" width="${labelWidth.toFixed(1)}" height="36" rx="5" fill="#ffffff" stroke="${s.color}" stroke-width="1.4"></rect>` +
+        `<text x="${(labelX + (labelWidth / 2)).toFixed(1)}" y="${(labelY + 25).toFixed(1)}" text-anchor="middle" fill="${s.color}" font-size="21" font-weight="900">${escapeSvgText(label)}</text>`
       );
     }
   });
@@ -2091,9 +2091,10 @@ function clampMapLatitude(lat) {
 }
 
 function formatMapViewDistance(meters) {
+  const roundedMeters = Math.max(10, Math.round(meters / 10) * 10);
   return meters >= 1000
     ? `${(meters / 1000).toFixed(1)} km`
-    : `${Math.round(meters)} m`;
+    : `${roundedMeters} m`;
 }
 
 function updateMapZoomControls() {
@@ -2214,7 +2215,7 @@ function buildMapState(lat, lon) {
     points.push(focusPoint);
   }
 
-  const mapUrl = `https://www.openstreetmap.org/?mlat=${focusPoint.lat.toFixed(6)}&mlon=${focusPoint.lon.toFixed(6)}#map=16/${focusPoint.lat.toFixed(6)}/${focusPoint.lon.toFixed(6)}`;
+  const mapUrl = `https://www.openstreetmap.org/?mlat=${focusPoint.lat.toFixed(6)}&mlon=${focusPoint.lon.toFixed(6)}#map=17/${focusPoint.lat.toFixed(6)}/${focusPoint.lon.toFixed(6)}`;
   const viewWidthMeters = mapFollowViewWidthMeters * mapZoomScale;
   const viewHeightMeters = mapFollowViewHeightMeters * mapZoomScale;
   const tileLayer = buildMapTileMarkup(focusPoint, viewWidthMeters, viewHeightMeters);
