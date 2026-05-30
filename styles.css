@@ -496,7 +496,7 @@ body {
   border: 2px solid var(--border);
   border-radius: 10px;
   padding: 8px;
-  min-height: 305px;
+  min-height: 300px;
   align-content: start;
   background:
     radial-gradient(circle at 10% 0%, rgba(77, 184, 232, 0.16), transparent 42%),
@@ -592,7 +592,7 @@ body {
 }
 
 .phone-monitor__qr-code {
-  width: min(100%, 215px);
+  width: min(100%, 205px);
   height: auto;
   aspect-ratio: 1;
   border: 2px solid var(--border);
@@ -915,9 +915,7 @@ body {
 }
 
 .imu-card__stage {
-  aspect-ratio: 16 / 9;
-  min-height: 146px;
-  max-height: 210px;
+  height: 146px;
   border: 2px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
