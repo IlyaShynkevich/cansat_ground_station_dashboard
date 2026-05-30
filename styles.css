@@ -915,7 +915,9 @@ body {
 }
 
 .imu-card__stage {
-  height: 146px;
+  aspect-ratio: 16 / 9;
+  min-height: 146px;
+  max-height: 210px;
   border: 2px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
@@ -1115,4 +1117,8 @@ body {
   .imu-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .phone-monitor--dock { grid-template-columns: 1fr; }
   .phone-monitor__qr { width: 100%; justify-items: start; }
+}
+
+@media (max-width: 980px) {
+  .imu-grid { grid-template-columns: 1fr; }
 }

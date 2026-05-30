@@ -3286,6 +3286,17 @@ function makeImuFallbackScene(canvas, color) {
 
   const history = [];
   let vector = { x: 0, y: 0, z: 0 };
+  let resizeObserver = null;
+  let resizeScheduled = false;
+
+  function scheduleResize() {
+    if (resizeScheduled) return;
+    resizeScheduled = true;
+    window.requestAnimationFrame(() => {
+      resizeScheduled = false;
+      resize();
+    });
+  }
 
   function drawLine3D(width, height, scale, from, to, stroke, lineWidth = 1.2) {
     const start = projectImuPoint(from.x, from.y, from.z, width, height, scale);
@@ -3374,13 +3385,24 @@ function makeImuFallbackScene(canvas, color) {
     const width = Math.max(1, Math.floor(rect.width));
     const height = Math.max(1, Math.floor(rect.height));
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.max(1, Math.floor(width * dpr));
-    canvas.height = Math.max(1, Math.floor(height * dpr));
+    const pixelWidth = Math.max(1, Math.floor(width * dpr));
+    const pixelHeight = Math.max(1, Math.floor(height * dpr));
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     draw(false);
   }
 
-  window.addEventListener("resize", resize);
+  if (typeof ResizeObserver === "function") {
+    resizeObserver = new ResizeObserver(() => {
+      scheduleResize();
+    });
+    resizeObserver.observe(canvas);
+  }
+
+  window.addEventListener("resize", scheduleResize);
   resize();
 
   return {
@@ -3391,6 +3413,10 @@ function makeImuFallbackScene(canvas, color) {
         z: z || 0,
       };
       draw(true);
+    },
+    destroy() {
+      window.removeEventListener("resize", scheduleResize);
+      resizeObserver?.disconnect();
     },
   };
 }
@@ -3417,6 +3443,18 @@ async function initImu3D() {
       const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+      let resizeObserver = null;
+      let resizeScheduled = false;
+
+      function scheduleResize() {
+        if (resizeScheduled) return;
+        resizeScheduled = true;
+        window.requestAnimationFrame(() => {
+          resizeScheduled = false;
+          resize();
+        });
+      }
+
       camera.position.set(1.7, 1.2, 1.85);
       camera.lookAt(0, 0, 0);
 
@@ -3493,8 +3531,24 @@ async function initImu3D() {
       }
 
       resize();
-      window.addEventListener("resize", resize);
-      return { renderer, scene, camera, controls, update };
+      if (typeof ResizeObserver === "function") {
+        resizeObserver = new ResizeObserver(() => {
+          scheduleResize();
+        });
+        resizeObserver.observe(canvas);
+      }
+      window.addEventListener("resize", scheduleResize);
+      return {
+        renderer,
+        scene,
+        camera,
+        controls,
+        update,
+        destroy() {
+          window.removeEventListener("resize", scheduleResize);
+          resizeObserver?.disconnect();
+        },
+      };
     }
 
     imuScenes = {
