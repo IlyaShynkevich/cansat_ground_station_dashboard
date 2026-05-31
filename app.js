@@ -3574,96 +3574,11 @@ async function initImu3D() {
   }
 }
 
-function initDisplayFit() {
-  const fitStage = document.querySelector(".fit-stage");
-  const fitRoot = document.querySelector(".fit-root");
-  if (!fitStage || !fitRoot) return;
-
-  // The dashboard is authored at a fixed design canvas (--fit-base-width x
-  // --fit-base-height) and scaled uniformly so the whole layout is always
-  // visible and centred (letter-boxed) on any display. Because the topbar now
-  // takes its own natural height -- independent of --fit-scale -- changing the
-  // scale never resizes the stage, so there is no measurement feedback loop.
-  const rootStyle = getComputedStyle(document.documentElement);
-  const stackQuery = typeof window.matchMedia === "function"
-    ? window.matchMedia("(max-width: 820px)")
-    : null;
-  let resizeScheduled = false;
-  let lastScale = -1;
-
-  function readBase() {
-    const width = parseFloat(rootStyle.getPropertyValue("--fit-base-width")) || 1600;
-    const height = parseFloat(rootStyle.getPropertyValue("--fit-base-height")) || 1000;
-    return { width, height };
-  }
-
-  function applyFit() {
-    // In the narrow stacked layout the CSS disables the scale transform, so we
-    // leave --fit-scale untouched and let the page flow and scroll naturally.
-    if (stackQuery && stackQuery.matches) return;
-
-    const stageStyle = window.getComputedStyle(fitStage);
-    const padX = (parseFloat(stageStyle.paddingLeft) || 0) + (parseFloat(stageStyle.paddingRight) || 0);
-    const padY = (parseFloat(stageStyle.paddingTop) || 0) + (parseFloat(stageStyle.paddingBottom) || 0);
-    const availWidth = Math.max(1, fitStage.clientWidth - padX);
-    const availHeight = Math.max(1, fitStage.clientHeight - padY);
-
-    const base = readBase();
-    const rawScale = Math.min(availWidth / base.width, availHeight / base.height);
-    const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
-
-    if (Math.abs(scale - lastScale) < 0.0005) return;
-    lastScale = scale;
-    document.documentElement.style.setProperty("--fit-scale", scale.toFixed(4));
-  }
-
-  function runFit() {
-    if (!resizeScheduled) return;
-    resizeScheduled = false;
-    applyFit();
-  }
-
-  function scheduleFit() {
-    if (resizeScheduled) return;
-    resizeScheduled = true;
-    // requestAnimationFrame batches rapid resize events into one paint. A
-    // setTimeout fallback guarantees the fit still updates when rAF is throttled
-    // (e.g. the window is minimised or in a background tab); whichever fires
-    // first runs the fit and the other becomes a no-op.
-    window.requestAnimationFrame(runFit);
-    window.setTimeout(runFit, 200);
-  }
-
-  if (typeof ResizeObserver === "function") {
-    const stageResizeObserver = new ResizeObserver(scheduleFit);
-    stageResizeObserver.observe(fitStage);
-  }
-
-  window.addEventListener("resize", scheduleFit);
-  if (stackQuery && typeof stackQuery.addEventListener === "function") {
-    stackQuery.addEventListener("change", () => {
-      lastScale = -1; // force a recompute when entering/leaving stacked mode
-      scheduleFit();
-    });
-  }
-  // Re-fit when the window becomes visible again, in case it was resized while
-  // hidden (rAF is paused for hidden documents).
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) {
-      lastScale = -1;
-      scheduleFit();
-    }
-  });
-
-  applyFit();
-}
-
 currentBaudRate = getSelectedBaudRate();
 resetSerialDiagnostics();
 resetBootAck();
 clearUi();
 updateMapZoomControls();
-initDisplayFit();
 initPhoneMonitor();
 refreshPorts();
 initImu3D();
