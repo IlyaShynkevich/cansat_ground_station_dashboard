@@ -24,15 +24,30 @@ body {
     radial-gradient(circle at 84% 0%, rgba(15, 106, 158, 0.11), transparent 28%),
     linear-gradient(180deg, #f8fbfd 0%, var(--bg) 56%, #e6eff5 100%);
   font: 15.5px/1.35 "Segoe UI", Tahoma, sans-serif;
-  /* Flex column: the topbar takes its natural height and the dashboard fills
-     the remaining height. The layout is fluid -- side columns keep their design
-     width while the centre column grows -- so elements stay at their natural
-     (compact) size instead of being scaled up on large displays. */
-  display: flex;
-  flex-direction: column;
+
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
+}
+
+.app-fit {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.app-canvas {
+  flex: 0 0 auto;
+  width: 1920px;
+  height: 1080px;
+  display: flex;
+  flex-direction: column;
+  transform: scale(var(--fit-scale, 1));
+  transform-origin: center center;
+  will-change: transform;
 }
 
 .boot-screen {
@@ -221,8 +236,7 @@ body {
   text-align: center;
   white-space: nowrap;
 }
-/* The source label can become a long sim filename; cap it with an ellipsis so
-   it never forces the topbar to wrap. */
+
 #sourceLabel {
   max-width: 280px;
   overflow: hidden;
@@ -256,9 +270,6 @@ body {
   overflow: hidden;
 }
 
-/* Fluid root: fills the stage in both axes. The grid columns below keep the
-   side panels at their design width and let the centre column grow, so the
-   dashboard stays compact (never scaled up) and fills the screen on any size. */
 .fit-root {
   width: 100%;
   height: 100%;
@@ -267,8 +278,7 @@ body {
 .layout {
   display: grid;
   grid-template-columns: minmax(240px, 290px) minmax(0, 1fr) minmax(280px, 360px);
-  /* Single full-height row so the panels stretch to the fixed canvas height
-     (set on .fit-root) instead of being sized by their content. */
+
   grid-template-rows: 100%;
   gap: 6px;
 }
@@ -285,10 +295,7 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.78),
     0 10px 24px rgba(24, 64, 94, 0.07);
 }
-/* Columns fill the viewport height and distribute space with flexbox. On
-   displays too short to show everything at full size they scroll internally
-   (overflow-y:auto) rather than clipping content -- normal/tall displays never
-   show a scrollbar. */
+
 .panel--status {
   display: flex;
   flex-direction: column;
@@ -551,10 +558,8 @@ body {
   border-radius: 10px;
   padding: 5px 6px 7px;
   min-height: 240px;
-  /* Grow to fill leftover space, but never shrink below the QR's size -- on a
-     tight column the aside panel scrolls instead, so the QR can't spill out of
-     its card. The extra bottom padding keeps empty space under the QR. */
-  /* Keep this card content-sized so leftover column space stays below it. */
+
+
   flex: 0 0 auto;
   min-width: 0;
   align-content: start;
@@ -1023,8 +1028,7 @@ body {
 
 .map-frame {
   width: 100%;
-  /* Match the map SVG viewBox (520x260) so the rendered tiles fill the frame
-     exactly instead of being letter-boxed with gaps on the sides. */
+
   aspect-ratio: 520 / 260;
   border: 2px solid var(--border);
   border-radius: 8px;
@@ -1175,10 +1179,19 @@ body {
   overflow: hidden;
 }
 
-/* Narrow screens (phones / small tablets / very small windows): the side-by-side
-   columns become too cramped, so below this width we stack everything in a single
-   column, give it natural (content) height, and let the page scroll. */
 @media (max-width: 820px) {
+
+  .app-fit {
+    position: static;
+    display: block;
+    overflow: visible;
+  }
+  .app-canvas {
+    width: auto;
+    height: auto;
+    transform: none;
+  }
+
   body {
     height: auto;
     min-height: 100vh;
@@ -1231,7 +1244,6 @@ body {
   .phone-monitor__qr { width: 100%; }
 }
 
-/* Roomier phones / small tablets in landscape get two telemetry columns back. */
 @media (max-width: 820px) and (min-width: 560px) {
   .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .telemetry-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

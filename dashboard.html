@@ -12,7 +12,7 @@
         "three/addons/": "./node_modules/three/examples/jsm/"
       }
     }
-  </script>
+</script>
 </head>
 <body>
   <div class="boot-screen" id="bootScreen" role="status" aria-live="polite" aria-label="SkyBound ground station loading">
@@ -26,6 +26,8 @@
     </div>
   </div>
 
+  <div class="app-fit" id="appFit">
+   <div class="app-canvas" id="appCanvas">
   <header class="topbar">
     <div class="topbar__left">
       <div class="title">Skybound Ground Station</div>
@@ -278,6 +280,8 @@ BOOT,1049,I2C=OK,BMP=OK,BNO=OK,INA=OK,GPS=OK,SERVO=OK,STATE=LAUNCH_PAD</pre>
         </section>
       </main>
     </div>
+  </div>
+   </div>
   </div>
 
   <script type="module" src="./app.js"></script>

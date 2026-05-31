@@ -32,6 +32,22 @@ function initBootScreen() {
 
 initBootScreen();
 
+const DESIGN_WIDTH = 1920;
+const DESIGN_HEIGHT = 1080;
+function applyDisplayFit() {
+  const canvas = document.getElementById("appCanvas");
+  if (!canvas) return;
+
+  if (window.innerWidth <= 820) {
+    canvas.style.setProperty("--fit-scale", "1");
+    return;
+  }
+  const scale = Math.min(window.innerWidth / DESIGN_WIDTH, window.innerHeight / DESIGN_HEIGHT);
+  canvas.style.setProperty("--fit-scale", String(scale));
+}
+applyDisplayFit();
+window.addEventListener("resize", applyDisplayFit);
+
 const elements = {
   sourceLabel: document.getElementById("sourceLabel"),
   missionTime: document.getElementById("missionTime"),
@@ -1696,7 +1712,6 @@ function scheduleUiUpdate() {
   const elapsedSinceLastUpdate = Date.now() - lastLiveTelemetryUiUpdateAt;
   const delay = Math.max(0, liveTelemetryUiIntervalMs - elapsedSinceLastUpdate);
 
-  // Batch serial bursts, while still allowing one visible refresh per second.
   scheduledUiUpdateTimer = window.setTimeout(() => {
     scheduledUiUpdateTimer = null;
     if (!scheduledUiUpdatePending) return;
