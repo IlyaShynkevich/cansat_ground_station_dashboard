@@ -11,6 +11,9 @@ const { SerialPort } = require("serialport");
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("disable-gpu-compositing");
+// Keep UI proportions stable across displays by forcing a 1:1 CSS pixel scale.
+app.commandLine.appendSwitch("force-device-scale-factor", "1");
+app.commandLine.appendSwitch("high-dpi-support", "1");
 
 const projectRoot = path.resolve(__dirname, "..");
 const mimeTypes = {
@@ -460,6 +463,18 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  // Lock browser zoom so Ctrl +/- or touch zoom cannot change the layout scale.
+  const lockZoomToDefault = () => {
+    win.webContents.setZoomFactor(1);
+    win.webContents.setVisualZoomLevelLimits(1, 1).catch(() => {});
+  };
+  win.webContents.on("did-finish-load", lockZoomToDefault);
+  win.webContents.on("before-input-event", (event, input) => {
+    const zoomShortcut = (input.control || input.meta)
+      && ["+", "-", "_", "=", "0"].includes(input.key);
+    if (zoomShortcut) event.preventDefault();
   });
 
   win.loadURL(`${localOrigin}/dashboard.html`);
