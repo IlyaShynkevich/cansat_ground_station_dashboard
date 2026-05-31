@@ -542,15 +542,16 @@ body {
 
 .phone-monitor {
   display: grid;
-  gap: 6px;
+  gap: 5px;
   border: 2px solid var(--border);
   border-radius: 10px;
-  padding: 6px 6px clamp(8px, 1.2vh, 12px);
-  min-height: clamp(128px, 16vh, 150px);
+  padding: 5px 6px 7px;
+  min-height: 0;
   /* Grow to fill leftover space, but never shrink below the QR's size -- on a
      tight column the aside panel scrolls instead, so the QR can't spill out of
      its card. The extra bottom padding keeps empty space under the QR. */
-  flex: 1 0 auto;
+  /* Keep this card content-sized so leftover column space stays below it. */
+  flex: 0 0 auto;
   min-width: 0;
   align-content: start;
   background:
@@ -646,11 +647,11 @@ body {
   gap: 4px;
   justify-items: center;
   align-content: center;
-  padding-bottom: clamp(2px, 0.4vh, 6px);
+  padding-bottom: 0;
 }
 
 .phone-monitor__qr-code {
-  width: min(100%, clamp(162px, 20vw, 180px));
+  width: min(100%, clamp(154px, 19vw, 174px));
   height: auto;
   aspect-ratio: 1;
   border: 2px solid var(--border);
@@ -687,7 +688,7 @@ body {
   font-weight: 800;
   line-height: 1.15;
   text-align: center;
-  margin-bottom: clamp(2px, 0.4vh, 5px);
+  margin-bottom: 0;
 }
 
 .serial-debug {
@@ -922,31 +923,31 @@ body {
 }
 
 .telemetry-grid {
-  margin-top: 6px;
+  margin-top: 4px;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 4px;
+  gap: 2px;
   align-content: start;
 }
 
 .telemetry-cell {
-  border: 2px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 3px 6px;
   min-width: 0;
   background: linear-gradient(180deg, #ffffff 0%, #f0f8fc 100%);
 }
 
 .telemetry-cell__k {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 800;
-  line-height: 1.15;
+  line-height: 1.1;
 }
 
 .telemetry-cell__v {
-  margin-top: 2px;
-  font-size: 16px;
+  margin-top: 1px;
+  font-size: 13px;
   font-weight: 900;
   overflow: hidden;
   text-overflow: ellipsis;
