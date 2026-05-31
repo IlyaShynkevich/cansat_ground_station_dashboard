@@ -63,6 +63,7 @@ body {
   margin: 4px 0 0;
   font-size: 28px;
   line-height: 1.05;
+  font-weight: 900;
 }
 
 .hero__status {
@@ -99,11 +100,12 @@ body {
 
 .hero__logo-image {
   display: block;
-  width: 120%;
+  width: 100%;
+  max-width: 100%;
+  max-height: 100%;
   height: auto;
   object-fit: contain;
-  transform: translateY(-4px) scale(1.12);
-  transform-origin: center;
+  transform: none;
   filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.28));
 }
 
