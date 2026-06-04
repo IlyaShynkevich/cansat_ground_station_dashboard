@@ -969,9 +969,11 @@ body {
 }
 
 .imu-grid {
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .imu-card {
@@ -981,6 +983,10 @@ body {
   background:
     radial-gradient(circle at 16% 0%, rgba(77, 184, 232, 0.16), transparent 44%),
     var(--card-grad);
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .imu-card__title {
@@ -988,10 +994,12 @@ body {
   font-weight: 900;
   color: var(--muted);
   margin-bottom: 4px;
+  flex: 0 0 auto;
 }
 
 .imu-card__stage {
-  height: clamp(84px, 12vh, 195px);
+  flex: 1 1 0;
+  min-height: 84px;
   border: 2px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
