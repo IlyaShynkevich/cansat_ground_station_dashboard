@@ -2,6 +2,11 @@
 
 Desktop ground station app for telemetry monitoring.
 
+## Project result
+
+SkyBound represented Germany and SRH University at the 2026 AAS CanSat Competition, finishing 14th overall.
+The competition is an annual student design-build-launch challenge where university and college teams develop a space-related system from concept design through integration, testing, launch operations, and post-mission review.
+
 ## What it does
 
 - Displays mission status and key telemetry values.
